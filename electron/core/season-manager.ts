@@ -8,7 +8,7 @@ import { resolveCharacterDir, getSoulFiles, assembleSoulPromptFile } from './cha
 import { loadAgentConfig } from './archetype-loader';
 import { mapCatalogModelToProviderModel } from './model-map';
 import { createAgent } from './agent-manager';
-import { assignConvener, setConvenerAgentId } from './convener-manager';
+import { assignConvener, setConvenerAgentId, getConvener } from './convener-manager';
 import { getProvider } from '../providers';
 import { writeProgrammaticInput } from './pty-manager';
 import { buildFullPath } from '../utils/path-builder';
@@ -17,7 +17,7 @@ import { trustClaudeProjects } from './claude-trust';
 import { bootstrapRepoContext } from './repo-context';
 import { validateLocalClone } from './git-validate';
 import { v4 as uuidv4 } from 'uuid';
-import type { Season, SeasonStatus, SeasonSourceControl, SeasonIntake, SeasonMode, HumanSeat, SeasonCeremony, CeremonyKind, CeremonyCadence } from '../types/echelon';
+import type { Season, SeasonStatus, SeasonSourceControl, SeasonIntake, SeasonMode, HumanSeat, SeasonCeremony, CeremonyKind, CeremonyCadence, MeetingFollowUp } from '../types/echelon';
 import type { AgentStatus, AgentPermissionMode, AppSettings } from '../types';
 import type { RosterManifestData, RosterCharacterEntry } from './roster-manager';
 
@@ -1449,6 +1449,106 @@ export function removeCeremony(seasonId: string, ceremonyId: string): Season | u
   broadcastToAllWindows('season:updated', season);
 
   logCeremony(seasonId, `Ceremony removed: ${ceremonyKindLabel(target.kind)} "${target.title}".`);
+
+  return season;
+}
+
+// ─── #22c — primary-contact agent + meeting follow-ups ────────────────────────
+
+/**
+ * Resolve a season's primary-contact agentId (#22c): the explicitly designated
+ * `season.primaryContactAgentId` when set, otherwise the convener's agentId as a
+ * fallback. Returns undefined only when neither is resolvable (e.g. an unknown
+ * season with no convener).
+ */
+export function getPrimaryContact(seasonId: string): string | undefined {
+  const season = seasons.get(seasonId);
+  if (!season) return undefined;
+  if (season.primaryContactAgentId) return season.primaryContactAgentId;
+  return getConvener(seasonId) ?? undefined;
+}
+
+/**
+ * Resolve a friendly display name for a season's primary-contact agent — its
+ * cast agent's canonName/name, else 'Scrum'. Used to label the meeting-intake
+ * conversation entries. Best-effort; never throws.
+ */
+function primaryContactName(seasonId: string): string {
+  try {
+    const agentId = getPrimaryContact(seasonId);
+    if (agentId) {
+      const { agents } = require('./agent-manager') as typeof import('./agent-manager');
+      const agent = agents.get(agentId);
+      const label = agent?.canonName || agent?.name;
+      if (label) return label;
+    }
+  } catch {
+    // fall through to the default
+  }
+  return 'Scrum';
+}
+
+/**
+ * Designate the season's primary-contact agent (#22c) — the agent that attends +
+ * summarizes meetings. Persists, broadcasts, and logs a system conversation
+ * entry. Returns the updated season (undefined for an unknown season). Never
+ * throws.
+ */
+export function setPrimaryContact(seasonId: string, agentId: string): Season | undefined {
+  const season = seasons.get(seasonId);
+  if (!season) return undefined;
+
+  const next = typeof agentId === 'string' ? agentId.trim() : '';
+  season.primaryContactAgentId = next || undefined;
+
+  saveSeason(seasonId);
+  broadcastToAllWindows('season:updated', season);
+
+  void (async () => {
+    try {
+      const { appendConversationEntry } = await import('./conversation-log');
+      const name = primaryContactName(seasonId);
+      appendConversationEntry(seasonId, {
+        agentId: 'system',
+        canonName: 'Ops',
+        kind: 'system',
+        text: next
+          ? `Primary contact set to ${name} — they attend + summarize meetings.`
+          : 'Primary contact cleared — defaults back to the convener.',
+      });
+    } catch (err) {
+      console.error(`setPrimaryContact: failed to log for season ${seasonId}:`, err);
+    }
+  })();
+
+  return season;
+}
+
+/** Get the season's display name for its primary-contact agent (#22c). */
+export function getPrimaryContactName(seasonId: string): string {
+  return primaryContactName(seasonId);
+}
+
+/**
+ * Mark one meeting follow-up resolved (#22c). Persists + broadcasts. No-op
+ * (returns the season unchanged) when the follow-up id isn't found; undefined for
+ * an unknown season. Never throws.
+ */
+export function resolveFollowUp(seasonId: string, followUpId: string): Season | undefined {
+  const season = seasons.get(seasonId);
+  if (!season) return undefined;
+
+  const list: MeetingFollowUp[] = Array.isArray(season.meetingFollowUps) ? season.meetingFollowUps : [];
+  const idx = list.findIndex((f) => f.id === followUpId);
+  if (idx === -1) return season;
+  if (list[idx].status === 'resolved') return season;
+
+  const next = list.slice();
+  next[idx] = { ...next[idx], status: 'resolved', resolvedAt: new Date().toISOString() };
+  season.meetingFollowUps = next;
+
+  saveSeason(seasonId);
+  broadcastToAllWindows('season:updated', season);
 
   return season;
 }

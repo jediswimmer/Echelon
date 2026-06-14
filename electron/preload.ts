@@ -828,6 +828,19 @@ contextBridge.exposeInMainWorld('electronAPI', {
       remove: (seasonId: string, ceremonyId: string) =>
         ipcRenderer.invoke('season:ceremony:remove', seasonId, ceremonyId),
     },
+    // Primary-contact agent + meeting transcript absorption (#22c): designate the
+    // agent that attends + summarizes meetings, absorb a user-provided transcript
+    // into a summary + action-item tickets + follow-up questions, and resolve a
+    // surfaced follow-up. Live auto-attendance (joining the call) is a future
+    // capability — this works from a transcript you provide.
+    meeting: {
+      setPrimaryContact: (seasonId: string, agentId: string) =>
+        ipcRenderer.invoke('season:primaryContact:set', seasonId, agentId),
+      absorb: (seasonId: string, payload: { ceremonyId?: string; transcript: string }) =>
+        ipcRenderer.invoke('season:meeting:absorb', seasonId, payload),
+      resolveFollowUp: (seasonId: string, followUpId: string) =>
+        ipcRenderer.invoke('season:meeting:resolveFollowUp', seasonId, followUpId),
+    },
     onUpdated: (callback: (season: any) => void) => {
       const listener = (_: unknown, season: any) => callback(season);
       ipcRenderer.on('season:updated', listener);

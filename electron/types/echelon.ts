@@ -156,6 +156,43 @@ export interface SeasonCeremony {
   createdAt: string;
 }
 
+/**
+ * A discussion item / open question the primary-contact agent raised after
+ * absorbing a meeting transcript (#22c / Scott's requirement #11), surfaced back
+ * to the user on the control board. Mirrors the 17c direction-request
+ * "surface a question to the user" pattern.
+ */
+export interface MeetingFollowUp {
+  /** Stable id (uuid). */
+  id: string;
+  /** A discussion item / question for the user. */
+  question: string;
+  status: 'open' | 'resolved';
+  /** The ceremony this follow-up came out of (when attached to one). */
+  ceremonyId?: string;
+  createdAt: string;
+  resolvedAt?: string;
+}
+
+/**
+ * The structured result of the primary-contact agent absorbing one meeting
+ * transcript (#22c): a short summary, the decisions reached, and the kanban task
+ * ids created from the meeting's action items. A bounded history of these is kept
+ * on the season.
+ */
+export interface MeetingAbsorption {
+  /** Stable id (uuid). */
+  id: string;
+  /** The ceremony this meeting maps to (when attached to one). */
+  ceremonyId?: string;
+  /** ISO timestamp when the transcript was absorbed. */
+  at: string;
+  summary: string;
+  decisions: string[];
+  /** Kanban task ids created (issueType 'task', season-scoped) from action items. */
+  actionItemTaskIds: string[];
+}
+
 export interface Season {
   id: string;
   name: string;
@@ -208,6 +245,24 @@ export interface Season {
    * Auto-firing on schedule is deferred to #18; this only stores the config.
    */
   ceremonies?: SeasonCeremony[];
+  /**
+   * The designated primary-contact agent for this season (#22c): the agent that
+   * attends + summarizes meetings (e.g. a scrum-master / user-handler). Stores a
+   * cast agentId; when unset, {@link getPrimaryContact} falls back to the
+   * convener's agentId.
+   */
+  primaryContactAgentId?: string;
+  /**
+   * Open/resolved discussion items the primary-contact agent raised after
+   * absorbing meeting transcripts (#22c), surfaced on the control board.
+   */
+  meetingFollowUps?: MeetingFollowUp[];
+  /**
+   * A bounded history (most-recent last, capped) of meeting transcripts the
+   * primary-contact agent has absorbed (#22c): summary, decisions, and the
+   * action-item task ids it created.
+   */
+  meetingAbsorptions?: MeetingAbsorption[];
 }
 
 export interface Character extends AgentStatus {

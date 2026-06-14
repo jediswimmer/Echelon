@@ -69,6 +69,36 @@ export interface SeasonCeremony {
 /** Loose input for adding/updating a ceremony (#22b) — id/createdAt are filled. */
 export type SeasonCeremonyInput = Partial<Omit<SeasonCeremony, 'id' | 'createdAt'>>;
 
+/** A discussion item / open question raised after absorbing a meeting (#22c). */
+export interface MeetingFollowUp {
+  id: string;
+  question: string;
+  status: 'open' | 'resolved';
+  ceremonyId?: string;
+  createdAt: string;
+  resolvedAt?: string;
+}
+
+/** The structured result of absorbing one meeting transcript (#22c). */
+export interface MeetingAbsorption {
+  id: string;
+  ceremonyId?: string;
+  at: string;
+  summary: string;
+  decisions: string[];
+  actionItemTaskIds: string[];
+}
+
+/** Result of absorbing a meeting transcript (#22c). Never thrown. */
+export interface AbsorbTranscriptResult {
+  ok: boolean;
+  summary?: string;
+  actionItems?: number;
+  questions?: number;
+  decisions?: number;
+  error?: string;
+}
+
 export interface KanbanCommentElectron {
   id: string;
   author: string;
@@ -1000,6 +1030,21 @@ export interface ElectronAPI {
       remove: (
         seasonId: string,
         ceremonyId: string,
+      ) => Promise<{ success: boolean; season?: unknown; error?: string }>;
+    };
+    // Primary-contact agent + meeting transcript absorption (#22c).
+    meeting?: {
+      setPrimaryContact: (
+        seasonId: string,
+        agentId: string,
+      ) => Promise<{ success: boolean; season?: unknown; error?: string }>;
+      absorb: (
+        seasonId: string,
+        payload: { ceremonyId?: string; transcript: string },
+      ) => Promise<AbsorbTranscriptResult>;
+      resolveFollowUp: (
+        seasonId: string,
+        followUpId: string,
       ) => Promise<{ success: boolean; season?: unknown; error?: string }>;
     };
     [key: string]: unknown;

@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { ArrowLeft, Users, Shield, Settings, Archive, RotateCcw, MessagesSquare, KanbanSquare, Github, GitBranch, FolderGit2, FolderSearch, FileText, Loader2, Search, ScanSearch, CheckCircle2, AlertTriangle, Compass, UserCog, Bot, Calendar, Clock, Video, Plus, Trash2, Pencil, CalendarPlus, X } from 'lucide-react';
+import { ArrowLeft, Users, Shield, Settings, Archive, RotateCcw, MessagesSquare, KanbanSquare, Github, GitBranch, FolderGit2, FolderSearch, FileText, Loader2, Search, ScanSearch, CheckCircle2, AlertTriangle, Compass, UserCog, Bot, Calendar, Clock, Video, Plus, Trash2, Pencil, CalendarPlus, X, UserCheck, ClipboardCheck, MessageCircleQuestion } from 'lucide-react';
 import ThemeBadge from '@/components/Echelon/ThemeBadge';
 import KanbanBoard from '@/components/KanbanBoard';
 import ConversationLogTab from './ConversationLogTab';
@@ -47,6 +47,26 @@ interface SeasonCeremony {
   createdAt: string;
 }
 
+/** A discussion item / open question raised after absorbing a meeting (#22c). */
+interface MeetingFollowUp {
+  id: string;
+  question: string;
+  status: 'open' | 'resolved';
+  ceremonyId?: string;
+  createdAt: string;
+  resolvedAt?: string;
+}
+
+/** The structured result of absorbing one meeting transcript (#22c). */
+interface MeetingAbsorption {
+  id: string;
+  ceremonyId?: string;
+  at: string;
+  summary: string;
+  decisions: string[];
+  actionItemTaskIds: string[];
+}
+
 interface SeasonDirectionOption {
   id: string;
   title: string;
@@ -89,6 +109,12 @@ interface Season {
   humanTeam?: { seats: HumanSeat[] };
   /** Ceremony calendar (#22b) — standups/grooming/reviews/meetings. */
   ceremonies?: SeasonCeremony[];
+  /** The designated primary-contact agent (#22c) — attends + summarizes meetings. */
+  primaryContactAgentId?: string;
+  /** Open/resolved discussion items raised after absorbing meetings (#22c). */
+  meetingFollowUps?: MeetingFollowUp[];
+  /** A bounded history of absorbed meeting transcripts (#22c). */
+  meetingAbsorptions?: MeetingAbsorption[];
 }
 
 /** Chip metadata for the brownfield context-bootstrap status. */
@@ -592,6 +618,7 @@ function SeasonModeCard({ season }: { season: Season }) {
         <>
           <HumanTeamPanel season={season} />
           <CeremoniesPanel season={season} />
+          <MeetingIntakePanel season={season} />
         </>
       )}
     </div>
@@ -1406,8 +1433,296 @@ function CeremoniesPanel({ season }: { season: Season }) {
       )}
 
       <p className="mt-2 text-[10px] text-muted-foreground">
-        The primary-contact agent will attend + summarize these meetings (lands with 22c).
+        The primary contact absorbs these meetings' transcripts below.
         Auto-scheduling on these times is #18.
+      </p>
+    </div>
+  );
+}
+
+/* ─── Meeting intake (#22c — primary contact + transcript absorption) ───────── */
+
+interface CastAgentLite {
+  id: string;
+  archetypeId?: string;
+  canonName?: string;
+  name?: string;
+}
+
+/**
+ * Collaborative-mode panel (#22c / Scott's requirement #11): the meeting
+ * follow-ups + transcript-intake experience.
+ *
+ *   • Primary-contact selector — pick which cast agent attends + summarizes
+ *     meetings (defaults to the convener). Persisted via
+ *     `season.meeting.setPrimaryContact`.
+ *   • "Absorb a transcript" — paste a user-provided meeting transcript (optionally
+ *     tied to a ceremony), click Absorb → `season.meeting.absorb` runs a one-shot
+ *     as the primary contact: a summary, action-item kanban tickets, and follow-up
+ *     questions. The summary + decisions also stream into the Conversation tab.
+ *   • Follow-ups — the open questions the agent raised, each with a Resolve button
+ *     (`season.meeting.resolveFollowUp`). Mirrors the DirectionCard surfacing style.
+ *
+ * Live auto-attendance (joining the call) needs a meeting-bot/transcription
+ * service and is a FUTURE capability — this works from a transcript you provide.
+ */
+function MeetingIntakePanel({ season }: { season: Season }) {
+  const api = typeof window !== 'undefined'
+    ? (window as unknown as { electronAPI: any }).electronAPI
+    : null;
+
+  const [castAgents, setCastAgents] = useState<CastAgentLite[]>([]);
+  const [savingContact, setSavingContact] = useState(false);
+
+  // Transcript intake form state.
+  const [formOpen, setFormOpen] = useState(false);
+  const [transcript, setTranscript] = useState('');
+  const [ceremonyId, setCeremonyId] = useState('');
+  const [absorbing, setAbsorbing] = useState(false);
+  const [result, setResult] = useState<{
+    ok: boolean; summary?: string; actionItems?: number; questions?: number; decisions?: number; error?: string;
+  } | null>(null);
+
+  const [resolvingId, setResolvingId] = useState<string | null>(null);
+
+  const ceremonies = Array.isArray(season.ceremonies) ? season.ceremonies : [];
+  const followUps = Array.isArray(season.meetingFollowUps) ? season.meetingFollowUps : [];
+  const openFollowUps = followUps.filter(f => f.status === 'open');
+  const absorptions = Array.isArray(season.meetingAbsorptions) ? season.meetingAbsorptions : [];
+  const lastAbsorption = absorptions.length > 0 ? absorptions[absorptions.length - 1] : null;
+
+  // Load the cast agents (one option per agent) for the primary-contact picker.
+  useEffect(() => {
+    if (!api?.agent?.list) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const all: CastAgentLite[] = await api.agent.list();
+        if (cancelled) return;
+        setCastAgents(all.filter(a => season.characterIds.includes(a.id)));
+      } catch (err) {
+        console.error('Failed to load cast for primary-contact picker:', err);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [season.characterIds.join(',')]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const agentLabel = (a: CastAgentLite) => a.canonName || a.name || a.id;
+
+  // The effective primary contact: explicit selection, else the first cast agent
+  // (the convener is normally first) so the dropdown reflects the backend default.
+  const effectiveContactId = season.primaryContactAgentId
+    || (castAgents.length > 0 ? castAgents[0].id : '');
+
+  const setContact = async (agentId: string) => {
+    if (!api?.season?.meeting?.setPrimaryContact || savingContact) return;
+    setSavingContact(true);
+    try {
+      await api.season.meeting.setPrimaryContact(season.id, agentId);
+      // The `season:updated` broadcast re-renders with the new contact.
+    } catch (err) {
+      console.error('Failed to set primary contact:', err);
+    } finally {
+      setSavingContact(false);
+    }
+  };
+
+  const absorb = async () => {
+    if (!api?.season?.meeting?.absorb || absorbing) return;
+    const text = transcript.trim();
+    if (!text) return;
+    setAbsorbing(true);
+    setResult(null);
+    try {
+      const res = await api.season.meeting.absorb(season.id, {
+        transcript: text,
+        ceremonyId: ceremonyId || undefined,
+      });
+      setResult(res);
+      if (res?.ok) {
+        // Clear the textarea on success; keep the panel open to show the result.
+        setTranscript('');
+        setCeremonyId('');
+      }
+    } catch (err) {
+      console.error('Failed to absorb transcript:', err);
+      setResult({ ok: false, error: 'Failed to absorb the transcript.' });
+    } finally {
+      setAbsorbing(false);
+    }
+  };
+
+  const resolve = async (followUpId: string) => {
+    if (!api?.season?.meeting?.resolveFollowUp || resolvingId) return;
+    setResolvingId(followUpId);
+    try {
+      await api.season.meeting.resolveFollowUp(season.id, followUpId);
+    } catch (err) {
+      console.error('Failed to resolve follow-up:', err);
+    } finally {
+      setResolvingId(null);
+    }
+  };
+
+  return (
+    <div className="mt-3 border-t border-border pt-3">
+      <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
+        <h4 className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+          <FileText className="w-3.5 h-3.5 text-muted-foreground" />
+          Meeting follow-ups
+        </h4>
+        {!formOpen && (
+          <button
+            type="button"
+            onClick={() => { setFormOpen(true); setResult(null); }}
+            className="flex items-center gap-1 px-2 py-1 text-[11px] font-medium bg-secondary text-foreground rounded-md hover:bg-secondary/70 transition-colors border border-border"
+          >
+            <Plus className="w-3 h-3" /> Absorb a transcript
+          </button>
+        )}
+      </div>
+
+      {/* Primary-contact selector (defaults to the convener). */}
+      <label className="flex items-center gap-2 mb-2 flex-wrap">
+        <span className="text-[11px] text-muted-foreground flex items-center gap-1 shrink-0">
+          <UserCheck className="w-3.5 h-3.5" />
+          Primary contact (attends + summarizes meetings)
+        </span>
+        <select
+          value={effectiveContactId}
+          onChange={e => setContact(e.target.value)}
+          disabled={savingContact || castAgents.length === 0}
+          className="text-[11px] px-2 py-1 rounded-md bg-background border border-border text-foreground focus:outline-none focus:border-primary/50 disabled:opacity-50"
+        >
+          {castAgents.length === 0 && <option value="">No cast agents</option>}
+          {castAgents.map(a => (
+            <option key={a.id} value={a.id}>{agentLabel(a)}</option>
+          ))}
+        </select>
+        {savingContact && <Loader2 className="w-3.5 h-3.5 animate-spin text-muted-foreground" />}
+      </label>
+
+      {/* Transcript intake form. */}
+      {formOpen && (
+        <div className="mt-1 mb-2 p-2.5 rounded-lg border border-border bg-background space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-semibold text-foreground">Absorb a meeting transcript</span>
+            <button
+              type="button"
+              onClick={() => { setFormOpen(false); setResult(null); }}
+              className="p-0.5 rounded text-muted-foreground hover:text-foreground"
+              title="Cancel"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+
+          {ceremonies.length > 0 && (
+            <label className="flex flex-col gap-0.5">
+              <span className="text-[10px] text-muted-foreground">Ceremony (optional)</span>
+              <select
+                value={ceremonyId}
+                onChange={e => setCeremonyId(e.target.value)}
+                className="text-[11px] px-2 py-1 rounded-md bg-background border border-border text-foreground focus:outline-none focus:border-primary/50"
+              >
+                <option value="">Not tied to a ceremony</option>
+                {ceremonies.map(c => (
+                  <option key={c.id} value={c.id}>{c.title}</option>
+                ))}
+              </select>
+            </label>
+          )}
+
+          <label className="flex flex-col gap-0.5">
+            <span className="text-[10px] text-muted-foreground">Transcript</span>
+            <textarea
+              value={transcript}
+              onChange={e => setTranscript(e.target.value)}
+              rows={6}
+              placeholder="Paste the meeting transcript here…"
+              className="text-[11px] px-2 py-1.5 rounded-md bg-background border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/50 resize-y font-mono"
+            />
+          </label>
+
+          <div className="flex items-center gap-2 pt-0.5">
+            <button
+              type="button"
+              onClick={absorb}
+              disabled={absorbing || !transcript.trim()}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-50"
+            >
+              {absorbing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ClipboardCheck className="w-3.5 h-3.5" />}
+              {absorbing ? 'Absorbing…' : 'Absorb'}
+            </button>
+            <button
+              type="button"
+              onClick={() => { setFormOpen(false); setResult(null); }}
+              className="px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
+            >
+              Cancel
+            </button>
+          </div>
+
+          {/* Absorb result (summary + counts, or an error). */}
+          {result && (
+            result.ok ? (
+              <div className="mt-1 p-2 rounded-md border border-green-500/30 bg-green-500/5 space-y-1">
+                <p className="text-[11px] text-foreground flex items-center gap-1.5">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-green-500 shrink-0" />
+                  {result.decisions ?? 0} decision{result.decisions === 1 ? '' : 's'} ·{' '}
+                  {result.actionItems ?? 0} action item{result.actionItems === 1 ? '' : 's'} (added to the board) ·{' '}
+                  {result.questions ?? 0} follow-up question{result.questions === 1 ? '' : 's'}
+                </p>
+                {result.summary && (
+                  <p className="text-[11px] text-muted-foreground whitespace-pre-wrap">{result.summary}</p>
+                )}
+              </div>
+            ) : (
+              <p className="mt-1 p-2 rounded-md border border-red-500/30 bg-red-500/5 text-[11px] text-red-500 flex items-center gap-1.5">
+                <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                {result.error || 'Could not absorb the transcript.'}
+              </p>
+            )
+          )}
+        </div>
+      )}
+
+      {/* Open follow-up questions surfaced back to the user. */}
+      {openFollowUps.length > 0 ? (
+        <div className="space-y-1.5">
+          {openFollowUps.map(f => (
+            <div
+              key={f.id}
+              className="flex items-start gap-2 px-2.5 py-2 rounded-lg border border-primary/30 bg-secondary/30"
+            >
+              <MessageCircleQuestion className="w-3.5 h-3.5 text-primary shrink-0 mt-0.5" />
+              <p className="text-[11px] text-foreground flex-1 min-w-0">{f.question}</p>
+              <button
+                type="button"
+                onClick={() => resolve(f.id)}
+                disabled={resolvingId !== null}
+                className="flex items-center gap-1 px-2 py-0.5 text-[10px] font-medium text-muted-foreground hover:text-foreground border border-border rounded-md hover:bg-secondary transition-colors disabled:opacity-50 shrink-0"
+              >
+                {resolvingId === f.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <CheckCircle2 className="w-3 h-3" />}
+                Resolve
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : (
+        !formOpen && (
+          <p className="text-[11px] text-muted-foreground">
+            {lastAbsorption
+              ? 'No open follow-ups — all discussion items are resolved.'
+              : 'No meeting absorbed yet. Use "Absorb a transcript" to summarize a meeting into decisions, action-item tickets, and follow-up questions.'}
+          </p>
+        )
+      )}
+
+      <p className="mt-2 text-[10px] text-muted-foreground">
+        The primary contact absorbs a meeting transcript you provide. Live auto-attendance
+        (joining the call) is a future capability. The summary + decisions also appear in the
+        Conversation tab.
       </p>
     </div>
   );

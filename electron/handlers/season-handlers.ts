@@ -13,7 +13,10 @@ import {
   addCeremony,
   updateCeremony,
   removeCeremony,
+  setPrimaryContact,
+  resolveFollowUp,
 } from '../core/season-manager';
+import { absorbTranscript } from '../core/meeting-intake';
 import type { SeasonRuntimeDeps, SeasonCeremonyInput } from '../core/season-manager';
 import type { SeasonMode, HumanSeat } from '../types/echelon';
 import { readConversation } from '../core/conversation-log';
@@ -277,6 +280,48 @@ export function registerSeasonHandlers(deps: SeasonHandlerDependencies): void {
       return { success: true, season };
     } catch (err) {
       console.error('Failed to remove ceremony:', err);
+      return { success: false, error: String(err) };
+    }
+  });
+
+  // ── #22c — primary-contact agent + meeting transcript absorption ────────────
+
+  // Designate the season's primary-contact agent (attends + summarizes meetings).
+  // Persists + broadcasts + logs. Returns the updated season.
+  ipcMain.handle('season:primaryContact:set', async (_event, seasonId: string, agentId: string) => {
+    try {
+      const season = setPrimaryContact(seasonId, typeof agentId === 'string' ? agentId : '');
+      if (!season) return { success: false, error: 'Season not found.' };
+      return { success: true, season };
+    } catch (err) {
+      console.error('Failed to set primary contact:', err);
+      return { success: false, error: String(err) };
+    }
+  });
+
+  // Absorb a user-provided meeting transcript as the primary-contact agent: a
+  // one-shot summary → action-item tickets + follow-up questions + a comms-log
+  // entry. Resilient — the core never throws; a graceful result comes back.
+  ipcMain.handle(
+    'season:meeting:absorb',
+    async (_event, seasonId: string, payload: { ceremonyId?: string; transcript: string }) => {
+      try {
+        return await absorbTranscript(seasonId, payload ?? { transcript: '' });
+      } catch (err) {
+        console.error('Failed to absorb meeting transcript:', err);
+        return { ok: false, error: String(err) };
+      }
+    },
+  );
+
+  // Mark one meeting follow-up resolved. Persists + broadcasts. Returns the season.
+  ipcMain.handle('season:meeting:resolveFollowUp', async (_event, seasonId: string, followUpId: string) => {
+    try {
+      const season = resolveFollowUp(seasonId, followUpId);
+      if (!season) return { success: false, error: 'Season not found.' };
+      return { success: true, season };
+    } catch (err) {
+      console.error('Failed to resolve meeting follow-up:', err);
       return { success: false, error: String(err) };
     }
   });
