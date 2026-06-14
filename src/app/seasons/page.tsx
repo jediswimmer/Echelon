@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Plus, RefreshCw, X, Loader2, ChevronDown, ChevronRight, ShieldCheck, ShieldAlert, ShieldOff } from 'lucide-react';
+import { Plus, RefreshCw, X, Loader2, ChevronDown, ChevronRight, ShieldCheck, ShieldAlert, ShieldOff, FolderGit2, Github, GitBranch } from 'lucide-react';
 import SeasonCard from '@/components/Echelon/SeasonCard';
 
 interface Season {
@@ -31,6 +31,41 @@ interface PostureOption {
   caption: string;
   Icon: typeof ShieldCheck;
 }
+
+/** Where the season workspace lives / is linked to (chosen at kickoff). */
+type SourceControlMode = 'local' | 'github' | 'azure-devops';
+
+interface SourceControlOption {
+  value: SourceControlMode;
+  label: string;
+  caption: string;
+  Icon: typeof FolderGit2;
+  /** Placeholder for the repo identifier input (only shown for github/azdo). */
+  repoPlaceholder?: string;
+}
+
+const SOURCE_CONTROL_OPTIONS: SourceControlOption[] = [
+  {
+    value: 'local',
+    label: 'Local workspace only',
+    caption: 'Echelon creates a fresh empty git repo for the season (default).',
+    Icon: FolderGit2,
+  },
+  {
+    value: 'github',
+    label: 'GitHub repo',
+    caption: 'Clone a GitHub repo as the season workspace (uses your gh auth).',
+    Icon: Github,
+    repoPlaceholder: 'owner/repo or https://github.com/owner/repo',
+  },
+  {
+    value: 'azure-devops',
+    label: 'Azure DevOps repo',
+    caption: 'Clone an Azure DevOps repo via git (uses your git credentials).',
+    Icon: GitBranch,
+    repoPlaceholder: 'https://dev.azure.com/org/project/_git/repo',
+  },
+];
 
 const PERMISSION_OPTIONS: PostureOption[] = [
   {
@@ -234,6 +269,11 @@ function NewSeasonModal({
   const [posture, setPosture] = useState<PermissionPosture>('normal');
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [roster, setRoster] = useState<RosterEntryDraft[]>(DEFAULT_TBBT_ROSTER);
+  // Source control + Jira linkage (optional, secondary to the PRD chat).
+  const [showLinks, setShowLinks] = useState(false);
+  const [sourceMode, setSourceMode] = useState<SourceControlMode>('local');
+  const [repoUrl, setRepoUrl] = useState('');
+  const [jiraProjectKey, setJiraProjectKey] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -261,6 +301,17 @@ function NewSeasonModal({
       return;
     }
 
+    // A non-local source-control mode requires a repo identifier.
+    const trimmedRepo = repoUrl.trim();
+    if (sourceMode !== 'local' && !trimmedRepo) {
+      setError(
+        sourceMode === 'github'
+          ? 'Enter the GitHub repo (owner/repo or URL) to clone as the workspace, or switch to Local.'
+          : 'Enter the Azure DevOps repo URL to clone as the workspace, or switch to Local.',
+      );
+      return;
+    }
+
     const api = (window as unknown as { electronAPI?: { season?: { spawn: (c: unknown) => Promise<{ success: boolean; error?: string; season?: { id: string } }> } } }).electronAPI;
     if (!api?.season) { setError('Season API unavailable (not running in Electron).'); return; }
 
@@ -277,6 +328,11 @@ function NewSeasonModal({
         rosterEntries: cleanRoster.length > 0
           ? cleanRoster.map(r => ({ ...r, capabilities: [] }))
           : undefined,
+        // Source control: only link when a non-local mode + repo is set.
+        sourceControl: sourceMode !== 'local'
+          ? { type: sourceMode, repoUrl: trimmedRepo }
+          : undefined,
+        jiraProjectKey: jiraProjectKey.trim() || undefined,
       });
       if (!result?.success) {
         setError(result?.error || 'Failed to spawn season.');
@@ -378,6 +434,92 @@ function NewSeasonModal({
                 );
               })}
             </div>
+          </div>
+
+          {/* Source control + Jira linkage (optional, collapsed by default). */}
+          <div className="border-t border-border pt-3">
+            <button
+              type="button"
+              onClick={() => setShowLinks(v => !v)}
+              className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
+            >
+              {showLinks ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+              Source control &amp; Jira
+              {(sourceMode !== 'local' || jiraProjectKey.trim()) && (
+                <span className="text-[10px] text-primary/80">
+                  {sourceMode !== 'local' ? (sourceMode === 'github' ? 'GitHub' : 'Azure DevOps') : ''}
+                  {sourceMode !== 'local' && jiraProjectKey.trim() ? ' · ' : ''}
+                  {jiraProjectKey.trim() ? `JIRA ${jiraProjectKey.trim().toUpperCase()}` : ''}
+                </span>
+              )}
+            </button>
+
+            {showLinks && (
+              <div className="mt-3 space-y-3">
+                <div>
+                  <label className="block text-xs font-medium text-muted-foreground mb-2">
+                    Source control
+                  </label>
+                  <div className="space-y-2">
+                    {SOURCE_CONTROL_OPTIONS.map(opt => {
+                      const selected = sourceMode === opt.value;
+                      return (
+                        <button
+                          key={opt.value}
+                          type="button"
+                          onClick={() => setSourceMode(opt.value)}
+                          className={`w-full text-left flex items-start gap-3 px-3 py-2.5 rounded-lg border transition-colors ${
+                            selected
+                              ? 'border-primary bg-primary/5'
+                              : 'border-border bg-background hover:border-primary/40'
+                          }`}
+                        >
+                          <opt.Icon className={`w-4 h-4 mt-0.5 shrink-0 ${selected ? 'text-primary' : 'text-muted-foreground'}`} />
+                          <span className="min-w-0">
+                            <span className="block text-sm font-medium text-foreground">{opt.label}</span>
+                            <span className="block text-[11px] mt-0.5 text-muted-foreground">{opt.caption}</span>
+                          </span>
+                          <span className={`ml-auto mt-0.5 w-3.5 h-3.5 rounded-full border shrink-0 ${selected ? 'border-primary bg-primary' : 'border-muted-foreground/40'}`} />
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {sourceMode !== 'local' && (
+                    <div className="mt-2">
+                      <input
+                        value={repoUrl}
+                        onChange={e => setRepoUrl(e.target.value)}
+                        placeholder={
+                          SOURCE_CONTROL_OPTIONS.find(o => o.value === sourceMode)?.repoPlaceholder
+                        }
+                        className="w-full px-3 py-2 text-sm font-mono bg-background border border-border rounded-lg text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-primary"
+                      />
+                      <p className="text-[11px] text-muted-foreground/70 mt-1.5">
+                        The repo is cloned as the season workspace on spawn; cast agents branch
+                        their worktrees off it. If the clone fails, the spawn is aborted.
+                      </p>
+                    </div>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-muted-foreground mb-1">
+                    Jira project key <span className="text-muted-foreground/60">(optional)</span>
+                  </label>
+                  <input
+                    value={jiraProjectKey}
+                    onChange={e => setJiraProjectKey(e.target.value)}
+                    placeholder="e.g. SD"
+                    className="w-full px-3 py-2 text-sm font-mono bg-background border border-border rounded-lg text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-primary"
+                  />
+                  <p className="text-[11px] text-muted-foreground/70 mt-1.5">
+                    Associates the season with a Jira project for display. Ticket sync lands in a
+                    later build.
+                  </p>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Advanced: edit roster override (collapsed by default). */}

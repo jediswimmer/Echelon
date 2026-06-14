@@ -14,7 +14,7 @@ import { writeProgrammaticInput } from './pty-manager';
 import { buildFullPath } from '../utils/path-builder';
 import { composeRosterFromPrd } from './composer';
 import { trustClaudeProjects } from './claude-trust';
-import type { Season, SeasonStatus } from '../types/echelon';
+import type { Season, SeasonStatus, SeasonSourceControl } from '../types/echelon';
 import type { AgentStatus, AgentPermissionMode, AppSettings } from '../types';
 import type { RosterManifestData, RosterCharacterEntry } from './roster-manager';
 
@@ -125,6 +125,15 @@ export async function spawnSeason(
      * (autonomy-derived).
      */
     permissionMode?: AgentPermissionMode;
+    /**
+     * Optional source-control linkage. When `type` is `github`/`azure-devops`
+     * and a `repoUrl` is given, the named repo is CLONED as the season
+     * workspace (instead of an empty git init). `local` (or undefined) keeps
+     * the empty-init behavior.
+     */
+    sourceControl?: SeasonSourceControl;
+    /** Optional linked Jira project key — captured + stored + displayed only. */
+    jiraProjectKey?: string;
   },
   deps: SeasonRuntimeDeps
 ): Promise<Season> {
@@ -133,11 +142,31 @@ export async function spawnSeason(
   const rosterManifestPath = path.join(seasonDir, 'roster.manifest.yaml');
   const charactersDir = path.join(seasonDir, 'characters');
 
-  fs.mkdirSync(workspacePath, { recursive: true });
   fs.mkdirSync(charactersDir, { recursive: true });
 
-  // The season workspace must be a git repo for worktree-isolated agents.
-  ensureGitRepo(workspacePath);
+  // Normalize the source-control linkage. A non-local type with a repoUrl means
+  // "clone this repo as the workspace"; anything else stays local (empty init).
+  const sourceControl: SeasonSourceControl | undefined = (() => {
+    const sc = config.sourceControl;
+    if (!sc || sc.type === 'local') return undefined;
+    const repoUrl = sc.repoUrl?.trim();
+    if (!repoUrl) return undefined; // type set but no repo ⇒ treat as local
+    return { type: sc.type, repoUrl };
+  })();
+  const jiraProjectKey = config.jiraProjectKey?.trim() || undefined;
+
+  if (sourceControl) {
+    // Clone the linked repo AS the season workspace. The directory must NOT
+    // pre-exist for `git clone <dir>` / `gh repo clone <dir>`. On failure we
+    // surface a clear error — the user asked for the repo, so we never silently
+    // fall back to an empty workspace.
+    await cloneWorkspaceFromRepo(sourceControl, workspacePath, deps.getAppSettings());
+  } else {
+    // Local-only: the season workspace must be a git repo for worktree-isolated
+    // agents. Initialize an empty repo with a seed commit (prior behavior).
+    fs.mkdirSync(workspacePath, { recursive: true });
+    ensureGitRepo(workspacePath);
+  }
 
   // Pre-trust the Echelon-owned workspace so Claude's per-folder trust dialog
   // never appears for season agents (worktree paths are pre-trusted below, once
@@ -173,6 +202,8 @@ export async function spawnSeason(
     workspacePath,
     characterIds: [],
     createdAt: new Date().toISOString(),
+    sourceControl,
+    jiraProjectKey,
   };
 
   // Write roster manifest
@@ -182,6 +213,10 @@ export async function spawnSeason(
     theme: config.theme,
     tier: composedTier,
     roster: rosterEntries,
+    source_control: sourceControl
+      ? { type: sourceControl.type, repo_url: sourceControl.repoUrl }
+      : undefined,
+    jira_project_key: jiraProjectKey,
   };
   saveRosterManifest(rosterManifestPath, manifestData);
 
@@ -381,6 +416,97 @@ export async function launchSeasonAgents(
   }
 
   deps.saveAgents();
+}
+
+/**
+ * Clone a linked repo AS the season workspace.
+ *
+ *   • GitHub: prefer `gh repo clone <repo> <workspacePath>` (the app already
+ *     depends on `gh` and inherits its auth); fall back to `git clone` if `gh`
+ *     is unavailable or fails.
+ *   • Azure DevOps: `git clone <repoUrl> <workspacePath>` (relies on the user's
+ *     existing git credential helper).
+ *
+ * Security: every invocation uses execFile with an args array (NO shell), so the
+ * repo URL is never interpolated into a shell string. PATH is resolved via
+ * {@link buildFullPath} (with any user-configured CLI dirs) so `gh`/`git` are
+ * found. On failure this THROWS — the caller must surface the error rather than
+ * silently fall back to an empty workspace.
+ */
+async function cloneWorkspaceFromRepo(
+  sourceControl: SeasonSourceControl,
+  workspacePath: string,
+  appSettings: AppSettings,
+): Promise<void> {
+  const { execFile } = require('child_process') as typeof import('child_process');
+  const { promisify } = require('util') as typeof import('util');
+  const execFileAsync = promisify(execFile);
+
+  const repoUrl = sourceControl.repoUrl!.trim();
+
+  // `git clone <dir>` / `gh repo clone <dir>` require the target NOT to exist
+  // (or to be empty). spawnSeason no longer pre-creates it for clone mode, but
+  // guard anyway: if it exists and is non-empty, that's a hard error.
+  if (fs.existsSync(workspacePath)) {
+    const entries = fs.readdirSync(workspacePath);
+    if (entries.length > 0) {
+      throw new Error(`Workspace path already exists and is not empty: ${workspacePath}`);
+    }
+    fs.rmdirSync(workspacePath);
+  }
+  // Ensure the parent exists so the clone target can be created.
+  fs.mkdirSync(path.dirname(workspacePath), { recursive: true });
+
+  // Resolve PATH including user-configured CLI dirs (gh/node) so the child can
+  // find the binaries even when the app launched without a login shell PATH.
+  const cliExtraPaths: string[] = [];
+  const cliPaths = appSettings.cliPaths;
+  if (cliPaths) {
+    for (const key of ['gh', 'node'] as const) {
+      const p = cliPaths[key];
+      if (p) cliExtraPaths.push(path.dirname(p));
+    }
+    if (Array.isArray(cliPaths.additionalPaths)) {
+      cliExtraPaths.push(...cliPaths.additionalPaths.filter(Boolean));
+    }
+  }
+  const env = { ...process.env, PATH: buildFullPath(cliExtraPaths) };
+  // Non-interactive: never let git/gh block the spawn on a credential prompt.
+  const cloneEnv = { ...env, GIT_TERMINAL_PROMPT: '0' };
+  const opts = { env: cloneEnv, timeout: 180_000, maxBuffer: 16 * 1024 * 1024 };
+
+  const ghBinary = cliPaths?.gh || 'gh';
+
+  if (sourceControl.type === 'github') {
+    // Try `gh repo clone` first (inherits gh auth), then fall back to git.
+    try {
+      await execFileAsync(ghBinary, ['repo', 'clone', repoUrl, workspacePath], opts);
+      console.log(`Season workspace cloned via gh: ${repoUrl} → ${workspacePath}`);
+      return;
+    } catch (ghErr) {
+      console.warn(`gh repo clone failed (${String(ghErr)}); falling back to git clone`);
+      try {
+        await execFileAsync('git', ['clone', repoUrl, workspacePath], opts);
+        console.log(`Season workspace cloned via git (gh fallback): ${repoUrl} → ${workspacePath}`);
+        return;
+      } catch (gitErr) {
+        throw new Error(
+          `Failed to clone GitHub repo "${repoUrl}" as the season workspace. ` +
+            `gh: ${String(ghErr)}; git: ${String(gitErr)}`,
+        );
+      }
+    }
+  }
+
+  // Azure DevOps (and any other non-github clone) → plain git clone.
+  try {
+    await execFileAsync('git', ['clone', repoUrl, workspacePath], opts);
+    console.log(`Season workspace cloned via git: ${repoUrl} → ${workspacePath}`);
+  } catch (gitErr) {
+    throw new Error(
+      `Failed to clone Azure DevOps repo "${repoUrl}" as the season workspace: ${String(gitErr)}`,
+    );
+  }
 }
 
 /**

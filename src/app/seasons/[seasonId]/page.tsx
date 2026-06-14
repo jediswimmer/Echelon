@@ -2,9 +2,14 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { ArrowLeft, Users, Shield, Settings, Archive, RotateCcw, MessagesSquare, KanbanSquare } from 'lucide-react';
+import { ArrowLeft, Users, Shield, Settings, Archive, RotateCcw, MessagesSquare, KanbanSquare, Github, GitBranch, FolderGit2 } from 'lucide-react';
 import ThemeBadge from '@/components/Echelon/ThemeBadge';
 import Link from 'next/link';
+
+interface SeasonSourceControl {
+  type: 'local' | 'github' | 'azure-devops';
+  repoUrl?: string;
+}
 
 interface Season {
   id: string;
@@ -16,6 +21,17 @@ interface Season {
   archivedAt?: string;
   workspacePath: string;
   rosterManifestPath: string;
+  sourceControl?: SeasonSourceControl;
+  jiraProjectKey?: string;
+}
+
+/** Human label + icon for a source-control linkage. */
+function sourceControlMeta(sc?: SeasonSourceControl): { label: string; Icon: typeof Github } {
+  switch (sc?.type) {
+    case 'github': return { label: 'GitHub', Icon: Github };
+    case 'azure-devops': return { label: 'Azure DevOps', Icon: GitBranch };
+    default: return { label: 'Local workspace', Icon: FolderGit2 };
+  }
 }
 
 type Tab = 'cast' | 'conversation' | 'tickets' | 'gates' | 'settings';
@@ -114,7 +130,12 @@ export default function SeasonDetailPage() {
   const tabs: { key: Tab; label: string; icon: typeof Users }[] = [
     { key: 'cast', label: 'Cast', icon: Users },
     { key: 'conversation', label: 'Conversation log', icon: MessagesSquare },
-    { key: 'tickets', label: 'Tickets', icon: KanbanSquare },
+    {
+      key: 'tickets',
+      // Surface the linked Jira project right in the tab label when set.
+      label: season.jiraProjectKey ? `Tickets → JIRA ${season.jiraProjectKey.toUpperCase()}` : 'Tickets',
+      icon: KanbanSquare,
+    },
     { key: 'gates', label: 'Review Gates', icon: Shield },
     { key: 'settings', label: 'Settings', icon: Settings },
   ];
@@ -139,6 +160,32 @@ export default function SeasonDetailPage() {
           <p className="text-muted-foreground text-xs mt-0.5">
             Created {createdDate} &middot; {season.characterIds.length} character{season.characterIds.length !== 1 ? 's' : ''}
           </p>
+          {/* Source-control + Jira linkage chips */}
+          {(season.sourceControl || season.jiraProjectKey) && (
+            <div className="flex items-center flex-wrap gap-1.5 mt-1.5">
+              {season.sourceControl && (() => {
+                const meta = sourceControlMeta(season.sourceControl);
+                return (
+                  <span
+                    className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-secondary border border-border text-muted-foreground max-w-full"
+                    title={season.sourceControl.repoUrl || meta.label}
+                  >
+                    <meta.Icon className="w-3 h-3 shrink-0" />
+                    <span className="font-medium text-foreground">{meta.label}</span>
+                    {season.sourceControl.repoUrl && (
+                      <span className="font-mono truncate max-w-[14rem]">{season.sourceControl.repoUrl}</span>
+                    )}
+                  </span>
+                );
+              })()}
+              {season.jiraProjectKey && (
+                <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-secondary border border-border text-muted-foreground">
+                  <KanbanSquare className="w-3 h-3 shrink-0" />
+                  <span className="font-medium text-foreground">JIRA {season.jiraProjectKey.toUpperCase()}</span>
+                </span>
+              )}
+            </div>
+          )}
         </div>
         <div className="flex items-center gap-2">
           {season.status === 'archived' ? (
@@ -187,7 +234,7 @@ export default function SeasonDetailPage() {
       <div className="flex-1 min-h-0 overflow-y-auto pb-4">
         {activeTab === 'cast' && <CastTab season={season} />}
         {activeTab === 'conversation' && <ConversationLogTab />}
-        {activeTab === 'tickets' && <TicketsTab />}
+        {activeTab === 'tickets' && <TicketsTab season={season} />}
         {activeTab === 'gates' && <GatesTab season={season} />}
         {activeTab === 'settings' && <SettingsTab season={season} />}
       </div>
@@ -302,7 +349,33 @@ function CastTab({ season }: { season: Season }) {
   };
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+    <div className="space-y-3">
+      {/* Cast header: surface the season's source-control + Jira linkage. */}
+      {(season.sourceControl || season.jiraProjectKey) && (
+        <div className="flex items-center flex-wrap gap-2 text-xs text-muted-foreground bg-card border border-border rounded-lg px-3 py-2">
+          {season.sourceControl && (() => {
+            const meta = sourceControlMeta(season.sourceControl);
+            return (
+              <span className="inline-flex items-center gap-1.5 min-w-0" title={season.sourceControl.repoUrl || meta.label}>
+                <meta.Icon className="w-3.5 h-3.5 shrink-0" />
+                <span className="font-medium text-foreground">{meta.label}</span>
+                {season.sourceControl.repoUrl && (
+                  <span className="font-mono truncate max-w-[18rem]">{season.sourceControl.repoUrl}</span>
+                )}
+              </span>
+            );
+          })()}
+          {season.sourceControl && season.jiraProjectKey && <span className="text-muted-foreground/40">·</span>}
+          {season.jiraProjectKey && (
+            <span className="inline-flex items-center gap-1.5">
+              <KanbanSquare className="w-3.5 h-3.5 shrink-0" />
+              <span className="font-medium text-foreground">JIRA {season.jiraProjectKey.toUpperCase()}</span>
+            </span>
+          )}
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
       {season.characterIds.map(charId => {
         const agent = agents[charId];
         const label = agent?.canonName || agent?.name || charId;
@@ -344,6 +417,7 @@ function CastTab({ season }: { season: Season }) {
           </div>
         );
       })}
+      </div>
     </div>
   );
 }
@@ -362,12 +436,23 @@ function ConversationLogTab() {
 
 /* ─── Tickets Tab (next build placeholder) ───────────────────── */
 
-function TicketsTab() {
+function TicketsTab({ season }: { season: Season }) {
   return (
     <div className="flex flex-col items-center justify-center h-48 text-muted-foreground">
       <KanbanSquare className="w-8 h-8 mb-2 opacity-50" />
-      <p className="text-sm">Tickets</p>
-      <p className="text-xs mt-1">The Jira-style kanban of season tasks lands in the next build</p>
+      {season.jiraProjectKey ? (
+        <>
+          <p className="text-sm">
+            Linked to JIRA <span className="font-mono text-foreground">{season.jiraProjectKey.toUpperCase()}</span>
+          </p>
+          <p className="text-xs mt-1">Ticket sync with this Jira project lands in the next build</p>
+        </>
+      ) : (
+        <>
+          <p className="text-sm">Tickets</p>
+          <p className="text-xs mt-1">The Jira-style kanban of season tasks lands in the next build</p>
+        </>
+      )}
     </div>
   );
 }
@@ -403,6 +488,34 @@ function SettingsTab({ season }: { season: Season }) {
           <div className="flex justify-between">
             <span className="text-muted-foreground">Theme</span>
             <span className="text-foreground">{season.theme}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-muted-foreground">Source control</span>
+            <span className="text-foreground flex items-center gap-1.5 min-w-0">
+              {(() => {
+                const meta = sourceControlMeta(season.sourceControl);
+                return <meta.Icon className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />;
+              })()}
+              <span>{sourceControlMeta(season.sourceControl).label}</span>
+              {season.sourceControl?.repoUrl && (
+                <span
+                  className="font-mono text-xs text-muted-foreground truncate max-w-[14rem]"
+                  title={season.sourceControl.repoUrl}
+                >
+                  {season.sourceControl.repoUrl}
+                </span>
+              )}
+            </span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-muted-foreground">Jira project</span>
+            <span className="text-foreground">
+              {season.jiraProjectKey ? (
+                <span className="font-mono">{season.jiraProjectKey.toUpperCase()}</span>
+              ) : (
+                <span className="text-muted-foreground">Not linked</span>
+              )}
+            </span>
           </div>
           <div className="flex justify-between">
             <span className="text-muted-foreground">Workspace</span>

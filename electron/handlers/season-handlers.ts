@@ -72,6 +72,10 @@ export function registerSeasonHandlers(deps: SeasonHandlerDependencies): void {
       character: string;
       capabilities: string[];
     }>;
+    /** Optional source-control linkage; non-local + repoUrl ⇒ clone as workspace. */
+    sourceControl?: { type: 'local' | 'github' | 'azure-devops'; repoUrl?: string };
+    /** Optional Jira project key — captured + stored + displayed only. */
+    jiraProjectKey?: string;
   }) => {
     try {
       const season = await spawnSeason(config, runtimeDeps);

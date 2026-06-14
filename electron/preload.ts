@@ -723,6 +723,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
       permissionMode?: 'normal' | 'auto' | 'bypass';
       /** Optional explicit roster; omitted/empty ⇒ auto-compose from `prd`. */
       rosterEntries?: Array<{ archetype: string; character: string; capabilities: string[] }>;
+      /**
+       * Optional source-control linkage. `local` (or omitted) ⇒ empty git init;
+       * `github`/`azure-devops` with a `repoUrl` ⇒ clone the repo as the workspace.
+       */
+      sourceControl?: { type: 'local' | 'github' | 'azure-devops'; repoUrl?: string };
+      /** Optional linked Jira project key (e.g. "SD") — captured + displayed only. */
+      jiraProjectKey?: string;
     }) => ipcRenderer.invoke('season:spawn', config),
     archive: (id: string) => ipcRenderer.invoke('season:archive', id),
     restore: (id: string) => ipcRenderer.invoke('season:restore', id),
