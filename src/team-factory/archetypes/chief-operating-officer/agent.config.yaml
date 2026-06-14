@@ -129,7 +129,7 @@ connectors:
 # ─────────────────────────────────────────────────────────── capabilities
 capabilities:
   # Least-privilege RBAC scopes drawn from access-matrix.yaml (+ the two business
-  # scopes the foundation design defines: budget:approve, vendor:write). The COO
+  # scopes the foundation design defines: budget:approve, vendor:onboard). The COO
   # runs the machinery: she delegates, tracks, reads health, and approves bounded
   # operating spend. She holds NO source-control, deployment, merge, gate-override,
   # or counselor scopes, and capability-grant is archetype-forbidden.
@@ -140,7 +140,7 @@ capabilities:
     - monitoring:read                # reads operational KPIs: throughput, cycle time, blocker age, utilization, vendor SLA
     - kanban:write                   # owns the operations / program board ordering, cadence items, dependency tracking
     - budget:approve                 # approves vendor / tooling spend WITHIN the CFO-set operating budget envelope
-    - vendor:write                   # onboards and manages vendor / connector relationships through procurement
+    - vendor:onboard                 # onboards and manages vendor / connector relationships through procurement
   forbidden:
     - source-control:read            # she runs operations; she does not read or touch the codebase
     - source-control:write           # never writes code or docs to source
@@ -159,7 +159,7 @@ capabilities:
     monitoring:read: "Reads operational KPIs (delivery throughput, cycle time, blocker age, utilization, vendor SLAs) to run the cadence on evidence rather than vibes; read-only, she does not configure monitors."
     kanban:write: "Owns the operations / program board: orders cadence items, tracks cross-team dependencies and blocker age. This is the role's core artifact."
     budget:approve: "Approves vendor and tooling spend WITHIN the CFO-set operating budget envelope; spend above the envelope or any irreversible commitment escalates to the CFO/CEO."
-    vendor:write: "Onboards, renews, and manages vendor and connector relationships through procurement, including SLA tracking; does not grant capabilities or touch secrets (vault is read-only, pointers only)."
+    vendor:onboard: "Onboards, renews, and manages vendor and connector relationships through procurement, including SLA tracking; does not grant capabilities or touch secrets (vault is read-only, pointers only)."
 
 # ───────────────────────────────────────────────────────────────── memory
 memory:

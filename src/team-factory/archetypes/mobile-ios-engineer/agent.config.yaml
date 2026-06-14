@@ -85,10 +85,12 @@ model:
 # ───────────────────────────────────────────────────────────────── skills
 skills:
   shared:
-    - { skill: git-worktrees,    scope: write }   # implements in an isolated worktree branch
-    - { skill: ios-implementation, scope: write } # Swift / SwiftUI / UIKit build skill
-    - { skill: mobile-ux,        scope: write }    # HIG-compliant mobile UX patterns
-    - { skill: review-gates,     scope: read }     # reads gate feedback; submits, never approves
+    - { skill: git-worktrees,        scope: write }   # implements in an isolated worktree branch
+    - { skill: ios-implementation,   scope: write }   # Swift / SwiftUI / UIKit build skill
+    - { skill: mobile-ux,            scope: write }    # HIG-compliant mobile UX patterns
+    - { skill: review-gates,         scope: read }     # reads gate feedback; submits, never approves
+    - { skill: knowledge-retrieval,  scope: read }     # queries mempalace for prior iOS learnings
+    - { skill: knowledge-capture,    scope: write }    # captures iOS patterns + version-specific fixes
   claude_skills: []
   hermes_skills: []
 
@@ -98,8 +100,9 @@ plugins: []                        # no installable capability bundles required 
 # ──────────────────────────────────────────────────────────── connectors
 connectors:
   mcp_servers:
-    - { server: orchestrator, access: read }    # receives delegations + reports status; no admin
-    - { server: git-worktree-runner, access: write }  # provisions/owns its build worktree
+    - { server: orchestrator,        access: read }    # receives delegations + reports status; no admin
+    - { server: git-worktree-runner, access: write }   # provisions/owns its build worktree
+    - { server: kanban,              access: write }    # moves his own cards through the board
   integrations: []                 # Mike has no direct user channel; the user-handler fronts the user
 
 # ─────────────────────────────────────────────────────────── capabilities
@@ -111,6 +114,8 @@ capabilities:
     - source-control:write
     - git-worktrees:write
     - file-ops:write
+    - knowledge-retrieval:read
+    - knowledge-capture:write
   forbidden:
     - deployment:write           # Mike builds + provides TestFlight handoff; release-manager/devops deploys
     - deployment:read            # not his concern; minimizes blast radius
@@ -123,15 +128,18 @@ capabilities:
     source-control:write: "Commits Swift/SwiftUI implementation and tests to his feature branch."
     git-worktrees:write: "Owns an isolated worktree for the duration of an iOS build; never the merge."
     file-ops:write: "Writes source files, test files, asset catalogs, and Info.plist entries within the worktree."
+    knowledge-retrieval:read: "Queries mempalace for prior iOS implementation patterns and version-specific gotchas."
+    knowledge-capture:write: "Persists iOS patterns, deployment-target decisions, and version-specific fixes for future engineers."
 
 # ───────────────────────────────────────────────────────────────── memory
 memory:
   kb_read:
-    - { wing: team,    hall: decisions }      # platform decisions, deployment-target history
-    - { wing: team,    hall: patterns }       # iOS implementation patterns
-    - { wing: team,    hall: reviews }        # prior gate feedback on iOS work
+    - { wing: season,  hall: decisions }      # platform decisions, deployment-target history
+    - { wing: season,  hall: patterns }       # iOS implementation patterns
+    - { wing: season,  hall: reviews }        # prior gate feedback on iOS work
     - { wing: private, hall: learnings }
   kb_write:
+    - { wing: season,  hall: patterns }       # reusable iOS/SwiftUI patterns
     - { wing: private, hall: learnings }      # captures iOS gotchas, version-specific fixes
   capture_tags: ["ios", "swift", "swiftui", "mobile-ux", "ios-perf"]
   retrieval_tags: ["ios", "swift", "swiftui", "mobile-ux", "deployment-target", "accessibility"]
@@ -155,15 +163,15 @@ schedule:
 # ───────────────────────────────────────────────────────────────── comms
 comms:
   subscribe:
-    - { topic_template: "team:{team}:primary",            role: both }   # receives delegations, reports status
-    - { topic_template: "gate:{team}:ui-functionality",   role: reader } # his UI work is rated here
-    - { topic_template: "gate:{team}:code",               role: reader } # code-quality feedback on his PRs
-    - { topic_template: "gate:{team}:architecture",       role: reader } # architecture verdicts on his work
-    - { topic_template: "gate:{team}:qa",                 role: reader } # QA verdicts on his work
-    - { topic_template: "gate:{team}:security",           role: reader } # security verdicts on his work
-    - { topic_template: "gate:{team}:adversarial",        role: reader } # adversarial rating on his work
-    - { topic_template: "team:{team}:escalation",         role: reader } # incident / escalation awareness
-  publish_default_topic: "team:{team}:primary"
+    - { topic: "team:{season}",                    role: both }    # receives delegations, reports status
+    - { topic: "gate:{season}:ui-functionality",   role: reader }  # his UI work is rated here
+    - { topic: "gate:{season}:code",               role: reader }  # code-quality feedback on his PRs
+    - { topic: "gate:{season}:architecture",       role: reader }  # architecture verdicts on his work
+    - { topic: "gate:{season}:qa",                 role: reader }  # QA verdicts on his work
+    - { topic: "gate:{season}:security",           role: reader }  # security verdicts on his work
+    - { topic: "gate:{season}:adversarial",        role: reader }  # adversarial rating on his work
+    - { topic: "control:global",                   role: reader }  # incident / escalation awareness
+  publish_default_topic: "team:{season}"
   can_delegate_to: []                                    # an IC builder does not delegate implementation work
   can_be_delegated_by: ["user-handler", "principal-architect", "technical-program-manager", "scrum-master"]
   sync_consult:

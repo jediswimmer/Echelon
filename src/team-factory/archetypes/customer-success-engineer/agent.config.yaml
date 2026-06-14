@@ -8,10 +8,11 @@ identity:
   tier: enterprise                       # full company only; medium/large seasons skip dedicated CS
   tier_default: enterprise               # appears at the enterprise tier and above
   reports_to: chief-revenue-officer
-  character: "Georgie Cooper"            # Young Sheldon; kept from the existing 43, globally unique
+  character: georgie-cooper              # character slug (cross-theme-cast into TBBT); globally unique
+  theme: tbbt                            # lifted into the TBBT theme alongside Leonard / Sheldon / Penny
   single_role: true
   secondary_roles_allowed: []
-  canonical_source: "Echelon roster 01-roster.json — customer-success-engineer (Georgie Cooper, young-sheldon)"
+  canonical_source: "Echelon roster 01-roster.json — customer-success-engineer (Georgie Cooper, cast into tbbt)"
 
 # ────────────────────────────────────────────────────────── prompt assembly
 prompt_assembly:

@@ -136,7 +136,7 @@ capabilities:
     file-ops:write: "Creates and edits mockups, prototypes, spec documents, and design system token definitions."
     quality-gate:approve: "Renders the ui-functionality rating verdict (>= 4 to pass) on the design-fidelity gate she is the domain owner of; she cannot approve other gates."
     knowledge-capture:write: "Persists reusable design patterns, interaction decisions, and accessibility rulings for the team."
-    delegation:read: "Reads delegation/tracker state to coordinate review and handoff with her direct reports (ux-researcher, content-strategist) without issuing implementation work herself."
+    delegation:read: "Reads delegation/tracker state to coordinate review and handoff with her direct reports (ux-researcher, content-designer) without issuing implementation work herself."
 
 # ───────────────────────────────────────────────────────────────── memory
 memory:
@@ -177,7 +177,7 @@ comms:
     - { topic: "gate:{season}:architecture",      role: reader }  # reads architecture verdicts touching UX
     - { topic: "design:{season}",                 role: both }    # design-team channel (researcher, content)
   publish_default_topic: "team:{season}"
-  can_delegate_to: ["ux-researcher", "content-strategist"]        # her two direct reports in the design dept
+  can_delegate_to: ["ux-researcher", "content-designer"]          # her two direct reports in the design dept
   can_be_delegated_by: ["chief-product-officer", "user-handler", "principal-architect", "scrum-master", "technical-program-manager"]
   sync_consult:
     - { target: "ux-researcher",          when: "a design choice needs validation against real user behavior", blocking: false }
@@ -189,7 +189,7 @@ comms:
 subagents:
   can_spawn: true                   # may fan out research/spec helpers within the design department
   max_concurrent: 2
-  allowed_archetypes: ["ux-researcher", "content-strategist"]   # her own department's reports only
+  allowed_archetypes: ["ux-researcher", "content-designer"]     # her own department's reports only
   spawn_model_class: balanced       # helpers run at the same sustainable class
 
 # ───────────────────────────────────────────────────────────────── guardrails

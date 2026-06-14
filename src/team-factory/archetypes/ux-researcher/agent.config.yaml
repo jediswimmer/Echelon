@@ -161,10 +161,11 @@ schedule:
 # ───────────────────────────────────────────────────────────────── comms
 comms:
   subscribe:
-    - { topic: "team:{team}",                  role: both }    # receives research delegations, posts findings
-    - { topic: "gate:{team}:ui-functionality", role: reader }  # watches usability verdicts on shipped UI
-    - { topic: "gate:{team}:accessibility",    role: reader }  # research and a11y findings reinforce each other
-  publish_default_topic: "team:{team}"
+    - { topic: "team:{season}",                  role: both }    # receives research delegations, posts findings
+    - { topic: "design:{season}",                role: both }    # design-team channel (ux-designer, content-designer)
+    - { topic: "gate:{season}:ui-functionality", role: reader }  # watches usability verdicts on shipped UI
+    - { topic: "gate:{season}:accessibility",    role: reader }  # research and a11y findings reinforce each other
+  publish_default_topic: "team:{season}"
   can_delegate_to: []                                          # researchers do not delegate work out
   can_be_delegated_by: ["ux-designer", "product-manager", "user-handler", "scrum-master", "technical-program-manager"]
   sync_consult:

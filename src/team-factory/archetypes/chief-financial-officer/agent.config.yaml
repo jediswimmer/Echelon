@@ -110,15 +110,16 @@ connectors:
 capabilities:
   # Least-privilege RBAC scopes, all drawn from access-matrix.yaml + the new
   # finance/budget resources seeded in migration Phase 1. The CFO reads spend
-  # signal everywhere, approves spend, writes budget policy — and stays out of
+  # signal everywhere, approves spend, delegates to his own finance department,
+  # ratifies the cost-calibration model via the finance gate — and stays out of
   # the execution path (no merge, no deploy, no routing, no capability grant).
   granted:
     - budget:approve              # approve large / above-threshold spend
-    - budget:read                 # read the spend ledger + reconciliation
-    - finance:read                # read cost-calibration + unit economics
-    - finance:write               # write budget posture, ceilings, ledger entries
+    - finance:read                # read cost-calibration + unit economics (budget ledger + posture writes live behind budget:approve / finance:read)
     - monitoring:read             # read usage-window state + token consumption
-    - policy:read                 # read the guardrail policy (spend ceilings live here)
+    - delegation:write            # spawns + delegates to finance-controller / financial-analyst (his own department)
+    - delegation:read             # reads delegation state to weigh run value against in-flight tasking
+    - quality-gate:approve        # ratifies the cost-calibration model + finance gate verdicts
     - knowledge-retrieval:read
     - knowledge-capture:write
   forbidden:
@@ -129,10 +130,12 @@ capabilities:
     - routing:write               # the orchestrator routes; the CFO only recommends
     - quality-gate:override        # gates are not the CFO's to wave through
   least_privilege_justification:
-    budget:approve: "Sole approver of large spend and any spend above the guardrail policy threshold; records the token estimate the approval was judged against."
-    finance:write: "Writes budget posture, per-team/per-role spend ceilings, and ledger reconciliation entries."
+    budget:approve: "Sole approver of large spend and any spend above the guardrail policy threshold; records the token estimate the approval was judged against. Also carries the budget ledger read/posture-write resources seeded under this scope in migration Phase 1."
+    finance:read: "Reads cost-calibration + unit economics (run_step_attempts actuals, role x weight cost model) to judge run value; he is the approver of the model, not its author."
     monitoring:read: "Reads usage_windows state and run_step_attempts token actuals to compute the burn-rate signal."
-    policy:read: "Reads the active guardrail policy because spend ceilings and the spend-over-threshold approval rule live there; he reads it but does not author it."
+    delegation:write: "Spawns and delegates analysis to his own finance department (financial-analyst, finance-controller); required by can_spawn + can_delegate_to."
+    delegation:read: "Reads delegation/tasking state to weigh a proposed run's value against work already in flight."
+    quality-gate:approve: "Ratifies or rejects the cost-calibration model update and emits the finance-gate verdict; he approves, he does not override."
     knowledge-capture:write: "Persists budget decisions, vetoes, and cost-calibration ratifications to the company decision log."
 
 # ───────────────────────────────────────────────────────────────── memory

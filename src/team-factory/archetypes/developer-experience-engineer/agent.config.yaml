@@ -9,7 +9,7 @@ identity:
   tier_default: large
   reports_to: principal-architect    # Sheldon owns the system shape; Paige polishes the surfaces developers touch
   character: paige-swanson
-  theme: young-sheldon               # Paige is a Young Sheldon character; the company theme remains tbbt
+  theme: tbbt                        # cross-theme cast: Paige (originally Young Sheldon) lifted into the TBBT company theme
   single_role: true
   secondary_roles_allowed: []
   canonical_source: "Echelon Roster — developer-experience-engineer (Paige Swanson)"
