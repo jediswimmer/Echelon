@@ -12,7 +12,7 @@ Resume doc for continuing the **Team Factory Echelon** build in a fresh window. 
 - **Implementation:** `~/dev/echelon` (git remote `jediswimmer/Echelon`). The actual app + the `src/team-factory/` roster content.
 
 ## 2. Current git state
-- **Active branch: `feat/runtime-live-teams`** in `~/dev/echelon` — **pushed to `origin` (synced), working tree clean.** (Use `git log main..HEAD` for the exact commit chain.) PR: https://github.com/jediswimmer/Echelon/pull/new/feat/runtime-live-teams
+- **Active branch: `feat/runtime-live-teams`** in `~/dev/echelon` — **pushed to `origin` (synced), working tree clean.** (Use `git log main..HEAD` for the exact commit chain.) **PR #3 (open): https://github.com/jediswimmer/Echelon/pull/3** (base `main`). Remotes: `origin` only — the stale `upstream → Charlie85270/Dorothy` was removed, so `gh` defaults to `jediswimmer/Echelon` now.
 - Commit chain (oldest→newest): roster (`4e66da7`,`5e4db6d`,`603c184`,`3fd34b5`,`a4beea3`,`405d7c4`) → runtime `543c9d0`(Phase A) `99077bf`(Phase B) `34443f6`(skill-build fix) `8973f62`(Core Flow) `f6977e8`(#16 repo/Jira) `2357c9d`(#20 brownfield) `2106521`(#21 local-clone).
 - **Pushed already:** `main` (P0 fixes, @`9c291ee`), `feat/company-roster` (the 70-agent roster, on origin), `docs/echelon-foundation` (design docs, on `factor-echelon`). The runtime branch is **local only** — push when validated.
 - Other branches: `feat/company-roster` (roster base), `feat/echelon-absorb` (pre-existing).
