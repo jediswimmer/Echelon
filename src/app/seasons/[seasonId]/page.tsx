@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { ArrowLeft, Users, Shield, Settings, Archive, RotateCcw, MessagesSquare, KanbanSquare, Github, GitBranch, FolderGit2, FolderSearch, FileText, Loader2, Search, ScanSearch, CheckCircle2, AlertTriangle, Compass, UserCog, Bot, Calendar, Clock, Video, Plus, Trash2, Pencil, CalendarPlus, X, UserCheck, ClipboardCheck, MessageCircleQuestion } from 'lucide-react';
+import { ArrowLeft, Users, Shield, Settings, Archive, RotateCcw, MessagesSquare, KanbanSquare, Github, GitBranch, FolderGit2, FolderSearch, FileText, Loader2, Search, ScanSearch, CheckCircle2, AlertTriangle, Compass, UserCog, Bot, Calendar, Clock, Video, Plus, Trash2, Pencil, CalendarPlus, X, UserCheck, ClipboardCheck, MessageCircleQuestion, UserPlus, Check } from 'lucide-react';
 import ThemeBadge from '@/components/Echelon/ThemeBadge';
 import KanbanBoard from '@/components/KanbanBoard';
 import ConversationLogTab from './ConversationLogTab';
@@ -115,6 +115,29 @@ interface Season {
   meetingFollowUps?: MeetingFollowUp[];
   /** A bounded history of absorbed meeting transcripts (#22c). */
   meetingAbsorptions?: MeetingAbsorption[];
+  /** On-demand / ad-hoc team expansion requests (#19). */
+  expansionRequests?: ExpansionRequest[];
+}
+
+/** A request to grow the team mid-season (#19). */
+interface ExpansionRequest {
+  id: string;
+  archetype?: string;
+  role: string;
+  reason: string;
+  requestedByAgentId?: string;
+  requestedByName?: string;
+  status: 'pending' | 'approved' | 'declined';
+  createdAt: string;
+  resolvedAt?: string;
+  resultAgentId?: string;
+}
+
+/** A selectable archetype for the manual "Add a team member" picker (#19). */
+interface ArchetypeOption {
+  archetype: string;
+  character?: string;
+  label: string;
 }
 
 /** Chip metadata for the brownfield context-bootstrap status. */
@@ -1846,6 +1869,253 @@ function ContextPanel({ season }: { season: Season }) {
   );
 }
 
+/* ─── On-demand / ad-hoc team expansion (#19) ────────────────── */
+
+/**
+ * Surfaces pending expansion requests (a running agent asked for a teammate the
+ * team lacks) with Approve/Decline, and a manual "Add a team member" form that
+ * casts + launches a new agent into the live season. Mirrors the DirectionCard
+ * surfacing pattern; the new agent appears in the Cast grid via the existing
+ * `agent:*` broadcasts and the `season:updated` rebroadcast.
+ */
+function ExpansionPanel({ season }: { season: Season }) {
+  const api = typeof window !== 'undefined'
+    ? (window as unknown as { electronAPI: any }).electronAPI
+    : null;
+
+  const pending = (season.expansionRequests ?? []).filter(r => r.status === 'pending');
+
+  const [showForm, setShowForm] = useState(false);
+  const [archetypes, setArchetypes] = useState<ArchetypeOption[]>([]);
+  const [selectedArchetype, setSelectedArchetype] = useState('');
+  const [characterName, setCharacterName] = useState('');
+  const [reason, setReason] = useState('');
+  const [busyId, setBusyId] = useState<string | null>(null); // request id being resolved
+  const [adding, setAdding] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Human-owned archetypes (#22a) can't be cast — filter them out of the picker.
+  const humanOwned = new Set((season.humanTeam?.seats ?? []).map(s => s.archetypeId));
+
+  // Lazy-load the archetype catalog the first time the form opens.
+  useEffect(() => {
+    if (!showForm || archetypes.length > 0 || !api?.season?.archetypes?.list) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await api.season.archetypes.list();
+        if (!cancelled && res?.archetypes) setArchetypes(res.archetypes);
+      } catch (err) {
+        console.error('Failed to load archetypes:', err);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [showForm, api?.season?.archetypes?.list]);
+
+  const isArchived = season.status === 'archived';
+
+  const approve = async (id: string) => {
+    if (!api?.season?.expansion?.approve || busyId) return;
+    setBusyId(id);
+    setError(null);
+    try {
+      const res = await api.season.expansion.approve(season.id, id);
+      if (!res?.ok) setError(res?.error || 'Failed to approve the request.');
+    } catch (err) {
+      console.error('Failed to approve expansion:', err);
+      setError(String(err));
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const decline = async (id: string) => {
+    if (!api?.season?.expansion?.decline || busyId) return;
+    setBusyId(id);
+    setError(null);
+    try {
+      await api.season.expansion.decline(season.id, id);
+    } catch (err) {
+      console.error('Failed to decline expansion:', err);
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const submitAdd = async () => {
+    if (!api?.season?.expansion?.add || adding) return;
+    const archetype = selectedArchetype.trim();
+    if (!archetype) return;
+    setAdding(true);
+    setError(null);
+    try {
+      const res = await api.season.expansion.add(season.id, {
+        archetype,
+        character: characterName.trim() || undefined,
+        reason: reason.trim() || undefined,
+      });
+      if (res?.ok) {
+        setShowForm(false);
+        setSelectedArchetype('');
+        setCharacterName('');
+        setReason('');
+      } else {
+        setError(res?.error || 'Failed to add the team member.');
+      }
+    } catch (err) {
+      console.error('Failed to add team member:', err);
+      setError(String(err));
+    } finally {
+      setAdding(false);
+    }
+  };
+
+  // Nothing to show when there are no pending requests AND the form is closed —
+  // but always keep the "Add a team member" affordance available (active seasons).
+  return (
+    <div className="space-y-3">
+      {/* Pending requests from running agents. */}
+      {pending.length > 0 && (
+        <div className="bg-card border border-primary/40 rounded-lg p-4 space-y-3">
+          <div className="flex items-center gap-2">
+            <UserPlus className="w-4 h-4 text-primary shrink-0" />
+            <h3 className="text-sm font-semibold text-foreground">
+              Expansion request{pending.length === 1 ? '' : 's'}
+            </h3>
+          </div>
+          {pending.map(req => (
+            <div key={req.id} className="rounded-lg border border-border bg-secondary/40 p-3">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-foreground">
+                    {req.role}
+                    {req.archetype && (
+                      <span className="ml-2 text-[10px] uppercase font-medium px-1.5 py-0.5 rounded bg-secondary border border-border text-muted-foreground">
+                        {req.archetype}
+                      </span>
+                    )}
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-1">{req.reason}</p>
+                  {req.requestedByName && (
+                    <p className="text-[11px] text-muted-foreground/70 mt-1">
+                      Requested by {req.requestedByName}
+                    </p>
+                  )}
+                </div>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => approve(req.id)}
+                    disabled={busyId === req.id || isArchived || !req.archetype}
+                    title={!req.archetype ? 'This request did not specify an archetype to cast' : undefined}
+                    className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-50"
+                  >
+                    {busyId === req.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                    Approve
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => decline(req.id)}
+                    disabled={busyId === req.id}
+                    className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium bg-secondary text-muted-foreground rounded-lg hover:bg-secondary/80 transition-colors disabled:opacity-50"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                    Decline
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Manual add. */}
+      {!isArchived && (
+        <div className="bg-card border border-border rounded-lg p-3">
+          {!showForm ? (
+            <button
+              type="button"
+              onClick={() => { setShowForm(true); setError(null); }}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-secondary text-foreground rounded-lg hover:bg-secondary/80 transition-colors"
+            >
+              <UserPlus className="w-3.5 h-3.5" />
+              Add a team member
+            </button>
+          ) : (
+            <div className="space-y-2.5">
+              <div className="flex items-center gap-2">
+                <UserPlus className="w-4 h-4 text-primary shrink-0" />
+                <h3 className="text-sm font-semibold text-foreground">Add a team member</h3>
+              </div>
+              <div>
+                <label className="block text-xs text-muted-foreground mb-1">Role / archetype</label>
+                <select
+                  value={selectedArchetype}
+                  onChange={e => setSelectedArchetype(e.target.value)}
+                  className="w-full px-3 py-2 text-sm rounded-lg bg-background border border-border text-foreground focus:outline-none focus:border-primary/50"
+                >
+                  <option value="">Select an archetype…</option>
+                  {archetypes
+                    .filter(a => !humanOwned.has(a.archetype))
+                    .map(a => (
+                      <option key={a.archetype} value={a.archetype}>{a.label}</option>
+                    ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs text-muted-foreground mb-1">Character name (optional)</label>
+                <input
+                  type="text"
+                  value={characterName}
+                  onChange={e => setCharacterName(e.target.value)}
+                  placeholder="Defaults to the archetype's character"
+                  className="w-full px-3 py-2 text-sm rounded-lg bg-background border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/50"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-muted-foreground mb-1">Reason (optional)</label>
+                <input
+                  type="text"
+                  value={reason}
+                  onChange={e => setReason(e.target.value)}
+                  placeholder="Why this teammate is needed"
+                  className="w-full px-3 py-2 text-sm rounded-lg bg-background border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/50"
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={submitAdd}
+                  disabled={adding || !selectedArchetype.trim()}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-50"
+                >
+                  {adding ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <UserPlus className="w-3.5 h-3.5" />}
+                  Add to team
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setShowForm(false); setError(null); }}
+                  disabled={adding}
+                  className="px-3 py-1.5 text-xs font-medium bg-secondary text-muted-foreground rounded-lg hover:bg-secondary/80 transition-colors disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {error && (
+        <div className="flex items-start gap-2 text-xs text-red-500 bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-2">
+          <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-px" />
+          <span>{error}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function CastTab({ season }: { season: Season }) {
   const [agents, setAgents] = useState<Record<string, CastAgent>>({});
   // Per-agent rolling output buffer (live PTY stream).
@@ -1927,6 +2197,9 @@ function CastTab({ season }: { season: Season }) {
     <div className="space-y-3">
       {/* Brownfield context bootstrap status + context.md preview. */}
       <ContextPanel season={season} />
+
+      {/* On-demand expansion (#19): pending requests + manual add-a-teammate. */}
+      <ExpansionPanel season={season} />
 
       {/* Cast header: surface the season's source-control + Jira linkage. */}
       {(season.sourceControl || season.jiraProjectKey) && (

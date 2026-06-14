@@ -841,6 +841,20 @@ contextBridge.exposeInMainWorld('electronAPI', {
       resolveFollowUp: (seasonId: string, followUpId: string) =>
         ipcRenderer.invoke('season:meeting:resolveFollowUp', seasonId, followUpId),
     },
+    // On-demand / ad-hoc team expansion (#19): list the archetype catalog for the
+    // manual-add picker, manually add a teammate (auto-approved), or approve/decline
+    // a pending request a running agent surfaced.
+    archetypes: {
+      list: () => ipcRenderer.invoke('season:archetypes:list'),
+    },
+    expansion: {
+      add: (seasonId: string, input: { archetype: string; character?: string; reason?: string }) =>
+        ipcRenderer.invoke('season:expansion:add', seasonId, input),
+      approve: (seasonId: string, requestId: string) =>
+        ipcRenderer.invoke('season:expansion:approve', seasonId, requestId),
+      decline: (seasonId: string, requestId: string) =>
+        ipcRenderer.invoke('season:expansion:decline', seasonId, requestId),
+    },
     onUpdated: (callback: (season: any) => void) => {
       const listener = (_: unknown, season: any) => callback(season);
       ipcRenderer.on('season:updated', listener);

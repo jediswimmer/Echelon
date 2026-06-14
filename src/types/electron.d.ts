@@ -99,6 +99,35 @@ export interface AbsorbTranscriptResult {
   error?: string;
 }
 
+/** A request to grow the team mid-season (#19). */
+export interface ExpansionRequest {
+  id: string;
+  archetype?: string;
+  role: string;
+  reason: string;
+  requestedByAgentId?: string;
+  requestedByName?: string;
+  status: 'pending' | 'approved' | 'declined';
+  createdAt: string;
+  resolvedAt?: string;
+  resultAgentId?: string;
+}
+
+/** A selectable archetype for the manual "Add a team member" picker (#19). */
+export interface ArchetypeOption {
+  archetype: string;
+  character?: string;
+  label: string;
+}
+
+/** Result of casting + launching a new teammate (#19). Never thrown. */
+export interface ExpandSeasonResult {
+  ok: boolean;
+  agentId?: string;
+  character?: string;
+  error?: string;
+}
+
 export interface KanbanCommentElectron {
   id: string;
   author: string;
@@ -1045,6 +1074,24 @@ export interface ElectronAPI {
       resolveFollowUp: (
         seasonId: string,
         followUpId: string,
+      ) => Promise<{ success: boolean; season?: unknown; error?: string }>;
+    };
+    // On-demand / ad-hoc team expansion (#19): list the archetype catalog for the
+    // manual-add picker.
+    archetypes?: {
+      list: () => Promise<{ archetypes: ArchetypeOption[]; error?: string }>;
+    };
+    // Manually add a teammate (auto-approved) or approve/decline a pending request
+    // a running agent surfaced (#19).
+    expansion?: {
+      add: (
+        seasonId: string,
+        input: { archetype: string; character?: string; reason?: string },
+      ) => Promise<ExpandSeasonResult>;
+      approve: (seasonId: string, requestId: string) => Promise<ExpandSeasonResult>;
+      decline: (
+        seasonId: string,
+        requestId: string,
       ) => Promise<{ success: boolean; season?: unknown; error?: string }>;
     };
     [key: string]: unknown;

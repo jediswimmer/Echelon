@@ -193,6 +193,36 @@ export interface MeetingAbsorption {
   actionItemTaskIds: string[];
 }
 
+/**
+ * A request to grow the team mid-season (#19 / Scott's requirement #3): add ONE
+ * new teammate to an EXISTING live season. Two origins:
+ *   • A running agent that hit a gap ("we need a <role> for this") POSTs the
+ *     request to the api endpoint → it lands here `pending` and surfaces on the
+ *     control board for the user to approve/decline.
+ *   • The user manually adds a member, which is auto-approved (it goes straight to
+ *     {@link Season.expansionRequests} as `approved` with the cast agent's id).
+ * Approving a `pending` request casts + launches the new agent into the season.
+ */
+export interface ExpansionRequest {
+  /** Stable id (uuid). */
+  id: string;
+  /** Requested archetype slug (when known — manual adds always set it). */
+  archetype?: string;
+  /** Freeform role/need description (what the team is missing). */
+  role: string;
+  /** Why a new teammate is needed. */
+  reason: string;
+  /** The agent that asked (undefined for a manual add). */
+  requestedByAgentId?: string;
+  /** Friendly display name of the requesting agent (when known). */
+  requestedByName?: string;
+  status: 'pending' | 'approved' | 'declined';
+  createdAt: string;
+  resolvedAt?: string;
+  /** The cast agent's id once the request is approved + the teammate is cast. */
+  resultAgentId?: string;
+}
+
 export interface Season {
   id: string;
   name: string;
@@ -263,6 +293,14 @@ export interface Season {
    * action-item task ids it created.
    */
   meetingAbsorptions?: MeetingAbsorption[];
+  /**
+   * On-demand / ad-hoc team expansion (#19): requests to add a teammate
+   * mid-season. `pending` requests (from a running agent that hit a gap) surface
+   * on the control board for the user to approve/decline; approved/declined ones
+   * are kept for the audit trail (most-recent last). Manual adds land here as
+   * `approved`.
+   */
+  expansionRequests?: ExpansionRequest[];
 }
 
 export interface Character extends AgentStatus {

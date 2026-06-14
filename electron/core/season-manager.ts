@@ -1,9 +1,9 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { BrowserWindow } from 'electron';
-import { DATA_DIR } from '../constants';
+import { DATA_DIR, API_PORT, getTeamFactoryDir } from '../constants';
 import { broadcastToAllWindows } from '../utils/broadcast';
-import { saveRosterManifest } from './roster-manager';
+import { saveRosterManifest, addCharacterToRoster, loadRosterManifest } from './roster-manager';
 import { resolveCharacterDir, getSoulFiles, assembleSoulPromptFile } from './character-loader';
 import { loadAgentConfig } from './archetype-loader';
 import { mapCatalogModelToProviderModel } from './model-map';
@@ -17,7 +17,7 @@ import { trustClaudeProjects } from './claude-trust';
 import { bootstrapRepoContext } from './repo-context';
 import { validateLocalClone } from './git-validate';
 import { v4 as uuidv4 } from 'uuid';
-import type { Season, SeasonStatus, SeasonSourceControl, SeasonIntake, SeasonMode, HumanSeat, SeasonCeremony, CeremonyKind, CeremonyCadence, MeetingFollowUp } from '../types/echelon';
+import type { Season, SeasonStatus, SeasonSourceControl, SeasonIntake, SeasonMode, HumanSeat, SeasonCeremony, CeremonyKind, CeremonyCadence, MeetingFollowUp, ExpansionRequest } from '../types/echelon';
 import type { AgentStatus, AgentPermissionMode, AppSettings } from '../types';
 import type { RosterManifestData, RosterCharacterEntry } from './roster-manager';
 
@@ -296,57 +296,12 @@ export async function spawnSeason(
       continue;
     }
     try {
-      const cfg = loadAgentConfig(entry.archetype);
-      const slug = entry.character || cfg.character;
-      if (!slug) {
-        console.warn(`Season ${config.id}: roster entry ${entry.archetype} has no character — skipping`);
-        continue;
-      }
-
-      const sourceCharacterDir = resolveCharacterDir(config.theme, slug);
-
-      // Copy the soul files into a season-owned mutable copy.
-      const seasonCharacterDir = path.join(charactersDir, slug);
-      fs.mkdirSync(seasonCharacterDir, { recursive: true });
-      for (const soulFile of getSoulFiles(sourceCharacterDir)) {
-        fs.copyFileSync(soulFile, path.join(seasonCharacterDir, path.basename(soulFile)));
-      }
-
-      // Assemble the system-prompt file inside the season copy.
-      const systemPromptPath = path.join(seasonCharacterDir, 'system-prompt.md');
-      assembleSoulPromptFile(seasonCharacterDir, cfg.assemblyOrder, systemPromptPath);
-
-      // Per-agent permission posture: the user-selected season posture wins;
-      // otherwise fall back to the archetype-derived default (prior behavior).
-      const permissionMode: AgentPermissionMode =
-        config.permissionMode ?? (cfg.autonomy === 'autonomous' ? 'auto' : 'normal');
-
-      // Cast the agent on its recommended model, worktree-isolated.
-      const agent = await createAgent(
-        {
-          name: slug,
-          projectPath: workspacePath,
-          worktree: { enabled: true, branchName: `season/${config.id}/${slug}` },
-          model: mapCatalogModelToProviderModel(cfg.modelPrimary),
-          skills: cfg.skills,
-          permissionMode,
-          seasonId: config.id,
-          archetypeId: entry.archetype,
-          canonName: slug,
-          theme: config.theme,
-          soulPackagePath: seasonCharacterDir,
-        },
-        deps.getAppSettings,
-        deps.handleStatusChangeNotification
-      );
-
-      // Pre-trust this agent's actual working dir (the worktree) so Claude's
-      // per-folder trust dialog never blocks the launch — regardless of the
-      // chosen permission posture. Echelon-owned worktree path only.
-      trustClaudeProjects([agent.worktreePath, agent.projectPath]);
-
-      addCharacterToSeason(config.id, agent.id);
-      cast.push({ agent, slug, isConvener: false });
+      const member = await castOneCharacter(season, entry, deps, {
+        charactersDir,
+        workspacePath,
+        permissionMode: config.permissionMode,
+      });
+      if (member) cast.push(member);
     } catch (err) {
       console.error(`Season ${config.id}: failed to cast ${entry.archetype} (${entry.character}):`, err);
     }
@@ -430,28 +385,7 @@ export async function launchSeasonAgents(
   let flippedActive = false;
 
   for (const member of cast) {
-    const { agent } = member;
     try {
-      // Initialize the PTY (createAgent already made one, but mirror agent:start
-      // robustness: re-init if missing).
-      let ptyJustCreated = false;
-      if (!agent.ptyId) {
-        agent.ptyId = await deps.initAgentPty(agent);
-        ptyJustCreated = true;
-      }
-
-      const { ptyProcesses } = require('./pty-manager') as typeof import('./pty-manager');
-      const ptyProcess = ptyProcesses.get(agent.ptyId!);
-      if (!ptyProcess) {
-        console.warn(`launchSeasonAgents: no PTY for agent ${agent.id} (${member.slug})`);
-        continue;
-      }
-
-      // Souls were assembled into the season character dir.
-      const systemPromptFile = agent.soulPackagePath
-        ? path.join(agent.soulPackagePath, 'system-prompt.md')
-        : undefined;
-
       // Brownfield context (if any) is appended to the convener's brief so it
       // grounds the team in the existing repo state — or tells them a code review
       // is in progress and where the resulting context.md will land.
@@ -460,48 +394,20 @@ export async function launchSeasonAgents(
         ? `\n\n---\n\nEXISTING-PROJECT CONTEXT (brownfield ingestion):\n${contextSummary}`
         : '';
 
-      // Convener gets the PRD; everyone else gets a standby/wake brief.
+      // Convener gets the PRD; everyone else gets a standby/wake brief. Both get
+      // the one-line "how to request a teammate" capability hint (#19).
       const prompt = member.isConvener
         ? (effectivePrd
-            ? `You are the convener for season "${season.name}". Here is the product brief / PRD for this season. Read it, break it into tasks, and coordinate the team to deliver it.\n\n---\n\n${effectivePrd}${contextBlock}`
-            : `You are the convener for season "${season.name}". Await the product brief, then coordinate the team.${contextBlock}`)
-        : `You are a cast member of season "${season.name}". Stand by for delegated tasks from the convener and begin work when assigned.`;
+            ? `You are the convener for season "${season.name}". Here is the product brief / PRD for this season. Read it, break it into tasks, and coordinate the team to deliver it.\n\n---\n\n${effectivePrd}${contextBlock}\n\n${expansionCapabilityHint(season.id)}`
+            : `You are the convener for season "${season.name}". Await the product brief, then coordinate the team.${contextBlock}\n\n${expansionCapabilityHint(season.id)}`)
+        : `You are a cast member of season "${season.name}". Stand by for delegated tasks from the convener and begin work when assigned.\n\n${expansionCapabilityHint(season.id)}`;
 
-      const command = cliProvider.buildInteractiveCommand({
+      const launched = await launchOneCastAgent(season, member, deps, {
         binaryPath,
-        prompt,
-        model: agent.model,
-        verbose: deps.getAppSettings().verboseModeEnabled,
-        permissionMode: agent.permissionMode ?? 'normal',
         mcpConfigPath,
-        systemPromptFile: systemPromptFile && fs.existsSync(systemPromptFile) ? systemPromptFile : undefined,
-        skills: agent.skills,
+        prompt,
       });
-
-      const workingPath = (agent.worktreePath || agent.projectPath).replace(/'/g, "'\\''");
-      const fullCommand = `cd '${workingPath}' && ${command}`;
-
-      agent.status = 'running';
-      agent.currentTask = prompt.slice(0, 100);
-      agent.lastActivity = new Date().toISOString();
-      broadcastToAllWindows('agent:status', {
-        type: 'status',
-        agentId: agent.id,
-        status: 'running',
-        timestamp: agent.lastActivity,
-      });
-
-      // Freshly-spawned PTYs need a moment for bash to come up before input.
-      if (ptyJustCreated) {
-        await new Promise<void>((resolve) => {
-          setTimeout(() => {
-            writeProgrammaticInput(ptyProcess, fullCommand);
-            resolve();
-          }, 500);
-        });
-      } else {
-        writeProgrammaticInput(ptyProcess, fullCommand);
-      }
+      if (!launched) continue;
 
       // Flip the season to active once the first agent is running.
       if (!flippedActive) {
@@ -509,7 +415,7 @@ export async function launchSeasonAgents(
         flippedActive = true;
       }
     } catch (err) {
-      console.error(`launchSeasonAgents: failed to launch agent ${agent.id} (${member.slug}):`, err);
+      console.error(`launchSeasonAgents: failed to launch agent ${member.agent.id} (${member.slug}):`, err);
     }
   }
 
@@ -530,6 +436,191 @@ export async function launchSeasonAgents(
       }
     })();
   }
+}
+
+/** Options for {@link castOneCharacter}. */
+interface CastCharacterOptions {
+  /** The season's `characters/` dir (a season-owned mutable soul copy lands here). */
+  charactersDir: string;
+  /** The season workspace agents branch worktrees off of. */
+  workspacePath: string;
+  /** Season-wide permission posture (overrides the archetype-derived default). */
+  permissionMode?: AgentPermissionMode;
+}
+
+/**
+ * Cast ONE roster entry into a live agent for a season — the shared casting recipe
+ * used by BOTH {@link spawnSeason}'s loop AND {@link expandSeason}, so this logic
+ * lives in exactly one place.
+ *
+ * It: loads the archetype config, resolves the character soul dir, copies the soul
+ * files into a season-owned mutable copy, assembles the system-prompt file, creates
+ * the worktree-isolated agent via the shared `createAgent`, pre-trusts its worktree,
+ * and registers the agent on the season. Returns the {@link CastMember}, or
+ * `undefined` when the entry has no resolvable character. Throws only on a hard
+ * failure (the callers wrap this in try/catch).
+ */
+async function castOneCharacter(
+  season: Season,
+  entry: RosterCharacterEntry,
+  deps: SeasonRuntimeDeps,
+  opts: CastCharacterOptions,
+): Promise<CastMember | undefined> {
+  const cfg = loadAgentConfig(entry.archetype);
+  const slug = entry.character || cfg.character;
+  if (!slug) {
+    console.warn(`Season ${season.id}: roster entry ${entry.archetype} has no character — skipping`);
+    return undefined;
+  }
+
+  const sourceCharacterDir = resolveCharacterDir(season.theme, slug);
+
+  // Copy the soul files into a season-owned mutable copy.
+  const seasonCharacterDir = path.join(opts.charactersDir, slug);
+  fs.mkdirSync(seasonCharacterDir, { recursive: true });
+  for (const soulFile of getSoulFiles(sourceCharacterDir)) {
+    fs.copyFileSync(soulFile, path.join(seasonCharacterDir, path.basename(soulFile)));
+  }
+
+  // Assemble the system-prompt file inside the season copy.
+  const systemPromptPath = path.join(seasonCharacterDir, 'system-prompt.md');
+  assembleSoulPromptFile(seasonCharacterDir, cfg.assemblyOrder, systemPromptPath);
+
+  // Per-agent permission posture: the user-selected season posture wins;
+  // otherwise fall back to the archetype-derived default (prior behavior).
+  const permissionMode: AgentPermissionMode =
+    opts.permissionMode ?? (cfg.autonomy === 'autonomous' ? 'auto' : 'normal');
+
+  // Cast the agent on its recommended model, worktree-isolated.
+  const agent = await createAgent(
+    {
+      name: slug,
+      projectPath: opts.workspacePath,
+      worktree: { enabled: true, branchName: `season/${season.id}/${slug}` },
+      model: mapCatalogModelToProviderModel(cfg.modelPrimary),
+      skills: cfg.skills,
+      permissionMode,
+      seasonId: season.id,
+      archetypeId: entry.archetype,
+      canonName: slug,
+      theme: season.theme,
+      soulPackagePath: seasonCharacterDir,
+    },
+    deps.getAppSettings,
+    deps.handleStatusChangeNotification,
+  );
+
+  // Pre-trust this agent's actual working dir (the worktree) so Claude's
+  // per-folder trust dialog never blocks the launch — regardless of the
+  // chosen permission posture. Echelon-owned worktree path only.
+  trustClaudeProjects([agent.worktreePath, agent.projectPath]);
+
+  addCharacterToSeason(season.id, agent.id);
+  return { agent, slug, isConvener: false };
+}
+
+/** Options for {@link launchOneCastAgent}. */
+interface LaunchOneOptions {
+  binaryPath: string;
+  mcpConfigPath?: string;
+  /** The full launch prompt for this agent (convener brief / standby / joining). */
+  prompt: string;
+}
+
+/**
+ * Launch ONE cast agent: (re-)init its PTY, build the Claude interactive command
+ * (souls injected via the assembled system-prompt file, on the recommended model),
+ * write it to the PTY, and flip the agent to `running`. Shared by
+ * {@link launchSeasonAgents} and {@link expandSeason}. Returns `true` when the
+ * command was written. Never throws (returns `false` on any failure).
+ */
+async function launchOneCastAgent(
+  season: Season,
+  member: CastMember,
+  deps: SeasonRuntimeDeps,
+  opts: LaunchOneOptions,
+): Promise<boolean> {
+  const { agent } = member;
+  try {
+    const cliProvider = getProvider('claude');
+
+    // Initialize the PTY (createAgent already made one, but mirror agent:start
+    // robustness: re-init if missing).
+    let ptyJustCreated = false;
+    if (!agent.ptyId) {
+      agent.ptyId = await deps.initAgentPty(agent);
+      ptyJustCreated = true;
+    }
+
+    const { ptyProcesses } = require('./pty-manager') as typeof import('./pty-manager');
+    const ptyProcess = ptyProcesses.get(agent.ptyId!);
+    if (!ptyProcess) {
+      console.warn(`launchOneCastAgent: no PTY for agent ${agent.id} (${member.slug})`);
+      return false;
+    }
+
+    // Souls were assembled into the season character dir.
+    const systemPromptFile = agent.soulPackagePath
+      ? path.join(agent.soulPackagePath, 'system-prompt.md')
+      : undefined;
+
+    const command = cliProvider.buildInteractiveCommand({
+      binaryPath: opts.binaryPath,
+      prompt: opts.prompt,
+      model: agent.model,
+      verbose: deps.getAppSettings().verboseModeEnabled,
+      permissionMode: agent.permissionMode ?? 'normal',
+      mcpConfigPath: opts.mcpConfigPath,
+      systemPromptFile: systemPromptFile && fs.existsSync(systemPromptFile) ? systemPromptFile : undefined,
+      skills: agent.skills,
+    });
+
+    const workingPath = (agent.worktreePath || agent.projectPath).replace(/'/g, "'\\''");
+    const fullCommand = `cd '${workingPath}' && ${command}`;
+
+    agent.status = 'running';
+    agent.currentTask = opts.prompt.slice(0, 100);
+    agent.lastActivity = new Date().toISOString();
+    broadcastToAllWindows('agent:status', {
+      type: 'status',
+      agentId: agent.id,
+      status: 'running',
+      timestamp: agent.lastActivity,
+    });
+
+    // Freshly-spawned PTYs need a moment for bash to come up before input.
+    if (ptyJustCreated) {
+      await new Promise<void>((resolve) => {
+        setTimeout(() => {
+          writeProgrammaticInput(ptyProcess, fullCommand);
+          resolve();
+        }, 500);
+      });
+    } else {
+      writeProgrammaticInput(ptyProcess, fullCommand);
+    }
+
+    return true;
+  } catch (err) {
+    console.error(`launchOneCastAgent: failed to launch agent ${agent.id} (${member.slug}):`, err);
+    return false;
+  }
+}
+
+/**
+ * One short line telling a cast agent how to ask for a teammate the team lacks
+ * (#19). Derives the local api base the same way every agent→app call does (the
+ * api-server listens on 127.0.0.1:API_PORT; the bearer token lives at
+ * `~/.echelon/api-token`). Kept terse so it doesn't bloat the launch prompt.
+ */
+function expansionCapabilityHint(seasonId: string): string {
+  const base = `http://127.0.0.1:${API_PORT}`;
+  return (
+    `If you need a specialist this team lacks, request one: ` +
+    `POST {"role","reason","archetype"?} to ${base}/api/seasons/${seasonId}/request-expansion ` +
+    `with header "Authorization: Bearer $(cat ~/.echelon/api-token)". ` +
+    `The user approves or declines it; on approval the new teammate joins automatically.`
+  );
 }
 
 /**
@@ -1549,6 +1640,344 @@ export function resolveFollowUp(seasonId: string, followUpId: string): Season | 
 
   saveSeason(seasonId);
   broadcastToAllWindows('season:updated', season);
+
+  return season;
+}
+
+// ─── #19 — on-demand / ad-hoc team expansion ──────────────────────────────────
+
+/** A selectable archetype for the manual "Add a team member" picker. */
+export interface ArchetypeOption {
+  /** Archetype slug (e.g. 'backend-engineer'). */
+  archetype: string;
+  /** Default theme character slug for this archetype (e.g. 'stuart-bloom'). */
+  character?: string;
+  /** Human-friendly label derived from the slug (e.g. 'Backend Engineer'). */
+  label: string;
+}
+
+/** Title-case a kebab/snake slug into a friendly label. */
+function labelFromSlug(slug: string): string {
+  return slug
+    .replace(/[-_]+/g, ' ')
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+/**
+ * List the archetype catalog for the manual-add picker (#19): every archetype
+ * directory under `<team-factory>/archetypes/`, with its default character slug
+ * (best-effort via {@link loadAgentConfig}) and a friendly label. Skips the
+ * `_template` scaffold. Resilient — returns whatever it can read; never throws.
+ */
+export function listArchetypes(): ArchetypeOption[] {
+  const out: ArchetypeOption[] = [];
+  try {
+    const dir = path.join(getTeamFactoryDir(), 'archetypes');
+    if (!fs.existsSync(dir)) return out;
+    const entries = fs.readdirSync(dir, { withFileTypes: true });
+    for (const e of entries) {
+      if (!e.isDirectory()) continue;
+      if (e.name.startsWith('_') || e.name.startsWith('.')) continue;
+      let character: string | undefined;
+      try {
+        character = loadAgentConfig(e.name).character || undefined;
+      } catch {
+        // A malformed/missing config still yields a selectable archetype; the
+        // cast falls back to the archetype's default character at expand time.
+      }
+      out.push({ archetype: e.name, character, label: labelFromSlug(e.name) });
+    }
+  } catch (err) {
+    console.error('listArchetypes: failed to read archetype catalog:', err);
+  }
+  return out.sort((a, b) => a.label.localeCompare(b.label));
+}
+
+/** Append a `system` conversation entry for an expansion event. Never throws. */
+function logExpansion(seasonId: string, text: string): void {
+  void (async () => {
+    try {
+      const { appendConversationEntry } = await import('./conversation-log');
+      appendConversationEntry(seasonId, {
+        agentId: 'system',
+        canonName: 'Ops',
+        kind: 'system',
+        text,
+      });
+    } catch (err) {
+      console.error(`logExpansion: failed to log for season ${seasonId}:`, err);
+    }
+  })();
+}
+
+/** Resolve a friendly display name for a (possibly running) agent id. */
+function agentDisplayName(agentId?: string): string | undefined {
+  if (!agentId) return undefined;
+  try {
+    const { agents } = require('./agent-manager') as typeof import('./agent-manager');
+    const agent = agents.get(agentId);
+    return agent?.canonName || agent?.name || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Record a `pending` expansion request on a season (#19). Called by the api
+ * endpoint when a running agent asks for a teammate, and reusable for a manual
+ * request. Persists `season.expansionRequests`, broadcasts, and logs a system
+ * entry so it surfaces on the control board. Returns the created request (or
+ * undefined for an unknown season). Never throws.
+ */
+export function requestExpansion(
+  seasonId: string,
+  input: { archetype?: string; role: string; reason: string; requestedByAgentId?: string },
+): ExpansionRequest | undefined {
+  const season = seasons.get(seasonId);
+  if (!season) return undefined;
+
+  const archetype = typeof input.archetype === 'string' && input.archetype.trim()
+    ? input.archetype.trim()
+    : undefined;
+  const role = (typeof input.role === 'string' ? input.role.trim() : '') || archetype || 'specialist';
+  const reason = (typeof input.reason === 'string' ? input.reason.trim() : '') || 'No reason given.';
+  const requestedByAgentId = typeof input.requestedByAgentId === 'string' && input.requestedByAgentId.trim()
+    ? input.requestedByAgentId.trim()
+    : undefined;
+  const requestedByName = agentDisplayName(requestedByAgentId);
+
+  const request: ExpansionRequest = {
+    id: uuidv4(),
+    archetype,
+    role: role.slice(0, 200),
+    reason: reason.slice(0, 2000),
+    requestedByAgentId,
+    requestedByName,
+    status: 'pending',
+    createdAt: new Date().toISOString(),
+  };
+
+  const list = Array.isArray(season.expansionRequests) ? season.expansionRequests : [];
+  season.expansionRequests = [...list, request];
+  saveSeason(seasonId);
+  broadcastToAllWindows('season:updated', season);
+
+  const who = requestedByName ? `${requestedByName} ` : '';
+  logExpansion(seasonId, `${who}requested a teammate — ${request.role}: ${request.reason}`);
+
+  return request;
+}
+
+/** Result of an {@link expandSeason} attempt — resilient (never throws). */
+export interface ExpandSeasonResult {
+  ok: boolean;
+  /** The cast agent's id, on success. */
+  agentId?: string;
+  /** The cast character slug, on success. */
+  character?: string;
+  error?: string;
+}
+
+/**
+ * Cast + LAUNCH one new teammate into an EXISTING live season (#19) — the core of
+ * on-demand expansion, used by the manual add and by approving an agent's request.
+ *
+ * Guards: the season must exist + not be archived; the archetype must be in the
+ * catalog; and it must NOT be human-owned (#22a) — a human seat keeps that role.
+ * On success it casts the character (shared {@link castOneCharacter}), launches it
+ * with a short joining brief (incl. the `reason`), adds it to the roster manifest,
+ * logs a system entry, and persists + broadcasts. Resilient — returns a result
+ * object rather than throwing.
+ */
+export async function expandSeason(
+  seasonId: string,
+  input: { archetype: string; character?: string; reason?: string; requestedByAgentId?: string },
+  deps: SeasonRuntimeDeps,
+): Promise<ExpandSeasonResult> {
+  try {
+    const season = seasons.get(seasonId);
+    if (!season) return { ok: false, error: 'Season not found.' };
+    if (season.status === 'archived') {
+      return { ok: false, error: 'Cannot expand an archived season.' };
+    }
+
+    const archetype = typeof input.archetype === 'string' ? input.archetype.trim() : '';
+    if (!archetype) return { ok: false, error: 'An archetype is required.' };
+
+    // Validate the archetype is in the catalog (loadAgentConfig throws on a bad
+    // slug / missing config).
+    let cfg;
+    try {
+      cfg = loadAgentConfig(archetype);
+    } catch (err) {
+      return { ok: false, error: `Unknown archetype "${archetype}": ${String(err)}` };
+    }
+
+    // 22a: refuse to cast an archetype a human owns — that role belongs to them.
+    const humanOwned = (season.humanTeam?.seats ?? []).some((s) => s.archetypeId === archetype);
+    if (humanOwned) {
+      return { ok: false, error: `Archetype "${archetype}" is owned by a human seat — not casting an agent for it.` };
+    }
+
+    const character = (typeof input.character === 'string' && input.character.trim())
+      ? input.character.trim()
+      : (cfg.character || undefined);
+
+    // Guard against re-casting: check BOTH the roster manifest AND the live agents.
+    // The manifest write below is non-fatal (can lag on a flaky disk), so the live
+    // agents map is the authoritative guard that prevents double-casting onto the
+    // same `season/<id>/<slug>` worktree branch. (Distinct character names CAN share
+    // an archetype — the branch is keyed on the character slug, not the archetype.)
+    const manifest = loadRosterManifest(season.rosterManifestPath);
+    if (character && manifest?.roster.some((r) => r.character === character)) {
+      return { ok: false, error: `Character "${character}" is already on the team.` };
+    }
+    const { agents: liveAgents } = require('./agent-manager') as typeof import('./agent-manager');
+    const seasonAgents = Array.from(liveAgents.values()).filter((a) => a.seasonId === seasonId);
+    if (character && seasonAgents.some((a) => a.canonName === character)) {
+      return { ok: false, error: `Character "${character}" is already on the team.` };
+    }
+    // Match the season's chosen permission posture (from an already-cast agent) so a
+    // new hire in a bypass/auto season isn't stuck prompting on every tool call.
+    const seasonPosture = seasonAgents.find((a) => a.permissionMode)?.permissionMode;
+
+    const entry: RosterCharacterEntry = { archetype, character: character || '', capabilities: [] };
+    const charactersDir = path.join(getSeasonsDir(), seasonId, 'characters');
+    fs.mkdirSync(charactersDir, { recursive: true });
+
+    // Pre-trust the workspace so the new worktree's trust dialog never blocks.
+    trustClaudeProjects([season.workspacePath]);
+
+    // Cast (shared recipe).
+    const member = await castOneCharacter(season, entry, deps, {
+      charactersDir,
+      workspacePath: season.workspacePath,
+      permissionMode: seasonPosture, // match the team's chosen posture (fallback: archetype default)
+    });
+    if (!member) {
+      return { ok: false, error: `Could not resolve a character for archetype "${archetype}".` };
+    }
+
+    // Add to the roster manifest (so a relaunch knows about the new hire).
+    try {
+      addCharacterToRoster(season.rosterManifestPath, {
+        archetype,
+        character: member.slug,
+        capabilities: [],
+      });
+    } catch (err) {
+      // Non-fatal: the agent is already cast + registered on the season.
+      console.error(`expandSeason: failed to add ${member.slug} to roster manifest:`, err);
+    }
+
+    // Launch the new teammate with a short joining brief that includes the reason.
+    const reason = (typeof input.reason === 'string' && input.reason.trim()) ? input.reason.trim() : undefined;
+    const cliProvider = getProvider('claude');
+    const binaryPath = cliProvider.resolveBinaryPath(deps.getAppSettings());
+    let mcpConfigPath: string | undefined;
+    if (cliProvider.getMcpConfigStrategy() === 'flag') {
+      const possibleMcpPath = path.join(require('os').homedir(), '.claude', 'mcp.json');
+      if (fs.existsSync(possibleMcpPath)) mcpConfigPath = possibleMcpPath;
+    }
+    const joiningPrompt =
+      `You are joining season "${season.name}" mid-flight as the ${labelFromSlug(archetype)}.` +
+      (reason ? ` You were added because: ${reason}` : '') +
+      ` Get up to speed, then coordinate with the convener and pick up work in your area.\n\n` +
+      expansionCapabilityHint(season.id);
+
+    await launchOneCastAgent(season, member, deps, { binaryPath, mcpConfigPath, prompt: joiningPrompt });
+    deps.saveAgents();
+
+    logExpansion(
+      seasonId,
+      `Added ${member.slug} (${archetype}) to the team` + (reason ? ` — ${reason}.` : '.'),
+    );
+
+    saveSeason(seasonId);
+    broadcastToAllWindows('season:updated', season);
+
+    return { ok: true, agentId: member.agent.id, character: member.slug };
+  } catch (err) {
+    console.error(`expandSeason: failed for season ${seasonId}:`, err);
+    return { ok: false, error: String(err) };
+  }
+}
+
+/**
+ * Approve a pending expansion request (#19): cast + launch the teammate via
+ * {@link expandSeason}, then mark the request `approved` with its `resultAgentId`.
+ * On a cast failure the request is left `pending` and the error is returned.
+ * Persists + broadcasts. Resilient — never throws.
+ */
+export async function approveExpansion(
+  seasonId: string,
+  requestId: string,
+  deps: SeasonRuntimeDeps,
+): Promise<ExpandSeasonResult> {
+  const season = seasons.get(seasonId);
+  if (!season) return { ok: false, error: 'Season not found.' };
+
+  const list = Array.isArray(season.expansionRequests) ? season.expansionRequests : [];
+  const idx = list.findIndex((r) => r.id === requestId);
+  if (idx === -1) return { ok: false, error: 'Expansion request not found.' };
+  const req = list[idx];
+  if (req.status !== 'pending') {
+    return { ok: false, error: `Request already ${req.status}.` };
+  }
+  if (!req.archetype) {
+    return { ok: false, error: 'This request did not specify an archetype to cast.' };
+  }
+
+  const result = await expandSeason(
+    seasonId,
+    { archetype: req.archetype, reason: req.reason, requestedByAgentId: req.requestedByAgentId },
+    deps,
+  );
+  if (!result.ok) return result;
+
+  // Re-read the (possibly mutated) season + request and mark it approved.
+  const after = seasons.get(seasonId);
+  if (after) {
+    const afterList = Array.isArray(after.expansionRequests) ? after.expansionRequests.slice() : [];
+    const afterIdx = afterList.findIndex((r) => r.id === requestId);
+    if (afterIdx !== -1) {
+      afterList[afterIdx] = {
+        ...afterList[afterIdx],
+        status: 'approved',
+        resolvedAt: new Date().toISOString(),
+        resultAgentId: result.agentId,
+      };
+      after.expansionRequests = afterList;
+      saveSeason(seasonId);
+      broadcastToAllWindows('season:updated', after);
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Decline a pending expansion request (#19): mark it `declined`, persist +
+ * broadcast + log. No-op (returns the season unchanged) when the id isn't found or
+ * it's already resolved; undefined for an unknown season. Never throws.
+ */
+export function declineExpansion(seasonId: string, requestId: string): Season | undefined {
+  const season = seasons.get(seasonId);
+  if (!season) return undefined;
+
+  const list = Array.isArray(season.expansionRequests) ? season.expansionRequests : [];
+  const idx = list.findIndex((r) => r.id === requestId);
+  if (idx === -1) return season;
+  if (list[idx].status !== 'pending') return season;
+
+  const next = list.slice();
+  next[idx] = { ...next[idx], status: 'declined', resolvedAt: new Date().toISOString() };
+  season.expansionRequests = next;
+
+  saveSeason(seasonId);
+  broadcastToAllWindows('season:updated', season);
+
+  logExpansion(seasonId, `Declined expansion request: ${next[idx].role}.`);
 
   return season;
 }

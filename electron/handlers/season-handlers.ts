@@ -15,6 +15,10 @@ import {
   removeCeremony,
   setPrimaryContact,
   resolveFollowUp,
+  expandSeason,
+  approveExpansion,
+  declineExpansion,
+  listArchetypes,
 } from '../core/season-manager';
 import { absorbTranscript } from '../core/meeting-intake';
 import type { SeasonRuntimeDeps, SeasonCeremonyInput } from '../core/season-manager';
@@ -322,6 +326,59 @@ export function registerSeasonHandlers(deps: SeasonHandlerDependencies): void {
       return { success: true, season };
     } catch (err) {
       console.error('Failed to resolve meeting follow-up:', err);
+      return { success: false, error: String(err) };
+    }
+  });
+
+  // ── #19 — on-demand / ad-hoc team expansion ─────────────────────────────────
+
+  // List the archetype catalog for the manual "Add a team member" picker.
+  // Resilient — the core never throws; returns whatever it can read.
+  ipcMain.handle('season:archetypes:list', async () => {
+    try {
+      return { archetypes: listArchetypes() };
+    } catch (err) {
+      console.error('Failed to list archetypes:', err);
+      return { archetypes: [], error: String(err) };
+    }
+  });
+
+  // Manual add: cast + launch ONE new teammate into a live season (auto-approved
+  // by the user action). Refuses a human-owned/invalid archetype with a clear
+  // error. Returns the cast agent id on success. Resilient — never throws.
+  ipcMain.handle(
+    'season:expansion:add',
+    async (_event, seasonId: string, input: { archetype: string; character?: string; reason?: string }) => {
+      try {
+        const result = await expandSeason(seasonId, input ?? { archetype: '' }, runtimeDeps);
+        return result;
+      } catch (err) {
+        console.error('Failed to add team member:', err);
+        return { ok: false, error: String(err) };
+      }
+    },
+  );
+
+  // Approve a pending expansion request (from a running agent): casts + launches
+  // the teammate and marks the request resolved. Resilient — never throws.
+  ipcMain.handle('season:expansion:approve', async (_event, seasonId: string, requestId: string) => {
+    try {
+      const result = await approveExpansion(seasonId, requestId, runtimeDeps);
+      return result;
+    } catch (err) {
+      console.error('Failed to approve expansion request:', err);
+      return { ok: false, error: String(err) };
+    }
+  });
+
+  // Decline a pending expansion request. Persists + broadcasts. Returns the season.
+  ipcMain.handle('season:expansion:decline', async (_event, seasonId: string, requestId: string) => {
+    try {
+      const season = declineExpansion(seasonId, requestId);
+      if (!season) return { success: false, error: 'Season not found.' };
+      return { success: true, season };
+    } catch (err) {
+      console.error('Failed to decline expansion request:', err);
       return { success: false, error: String(err) };
     }
   });
