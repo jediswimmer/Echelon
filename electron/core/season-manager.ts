@@ -14,7 +14,8 @@ import { writeProgrammaticInput } from './pty-manager';
 import { buildFullPath } from '../utils/path-builder';
 import { composeRosterFromPrd } from './composer';
 import { trustClaudeProjects } from './claude-trust';
-import type { Season, SeasonStatus, SeasonSourceControl } from '../types/echelon';
+import { bootstrapRepoContext } from './repo-context';
+import type { Season, SeasonStatus, SeasonSourceControl, SeasonIntake } from '../types/echelon';
 import type { AgentStatus, AgentPermissionMode, AppSettings } from '../types';
 import type { RosterManifestData, RosterCharacterEntry } from './roster-manager';
 
@@ -91,6 +92,14 @@ const seasonCast: Map<string, CastMember[]> = new Map();
 const seasonPrd: Map<string, string> = new Map();
 
 /**
+ * Map of seasonId → brownfield context summary, produced by the repo-context
+ * bootstrap at spawn time and appended to the convener's launch prompt so the
+ * team knows whether existing context was found (and where) or whether an
+ * onboarding code review is in progress.
+ */
+const seasonContextSummary: Map<string, string> = new Map();
+
+/**
  * Spawn a season AND cast a live team from the roster.
  *
  * For each roster entry this:
@@ -134,6 +143,13 @@ export async function spawnSeason(
     sourceControl?: SeasonSourceControl;
     /** Optional linked Jira project key — captured + stored + displayed only. */
     jiraProjectKey?: string;
+    /**
+     * Intake mode: `greenfield` (new project, the default) vs `brownfield`
+     * (existing, in-flight project found in a linked repo). Brownfield seasons
+     * (and any season with a real linked repo) bootstrap their starting context
+     * from the repo via {@link bootstrapRepoContext} before the team gets to work.
+     */
+    intake?: SeasonIntake;
   },
   deps: SeasonRuntimeDeps
 ): Promise<Season> {
@@ -154,6 +170,11 @@ export async function spawnSeason(
     return { type: sc.type, repoUrl };
   })();
   const jiraProjectKey = config.jiraProjectKey?.trim() || undefined;
+
+  // Intake mode. `brownfield` is explicit; otherwise default to `greenfield`.
+  // A brownfield intake OR any real linked repo triggers the context bootstrap.
+  const intake: SeasonIntake = config.intake === 'brownfield' ? 'brownfield' : 'greenfield';
+  const shouldBootstrapContext = intake === 'brownfield' || Boolean(sourceControl);
 
   if (sourceControl) {
     // Clone the linked repo AS the season workspace. The directory must NOT
@@ -204,6 +225,10 @@ export async function spawnSeason(
     createdAt: new Date().toISOString(),
     sourceControl,
     jiraProjectKey,
+    intake,
+    // Greenfield seasons never run the bootstrap; brownfield/linked-repo seasons
+    // start as `searching` once the bootstrap kicks off (set below).
+    contextStatus: shouldBootstrapContext ? 'searching' : 'greenfield',
   };
 
   // Write roster manifest
@@ -299,6 +324,22 @@ export async function spawnSeason(
   seasonCast.set(config.id, cast);
   if (config.prd) seasonPrd.set(config.id, config.prd);
 
+  // ── Brownfield: bootstrap the team's context from the (cloned) repo ──
+  // Runs AFTER the repo is cloned + the cast is set up, but BEFORE the team is
+  // launched (the handler calls launchSeasonAgents next). It searches existing
+  // context and, if none is found, kicks off an onboarding code review. The
+  // returned summary is folded into the convener's launch prompt. Never throws —
+  // a failed bootstrap must not block the team going live.
+  if (shouldBootstrapContext) {
+    try {
+      const bootstrap = await bootstrapRepoContext(season, deps);
+      seasonContextSummary.set(config.id, bootstrap.summary);
+    } catch (err) {
+      console.error(`Season ${config.id}: repo context bootstrap failed:`, err);
+      updateSeasonContextStatus(config.id, 'failed');
+    }
+  }
+
   return season;
 }
 
@@ -362,11 +403,19 @@ export async function launchSeasonAgents(
         ? path.join(agent.soulPackagePath, 'system-prompt.md')
         : undefined;
 
+      // Brownfield context (if any) is appended to the convener's brief so it
+      // grounds the team in the existing repo state — or tells them a code review
+      // is in progress and where the resulting context.md will land.
+      const contextSummary = seasonContextSummary.get(id);
+      const contextBlock = member.isConvener && contextSummary
+        ? `\n\n---\n\nEXISTING-PROJECT CONTEXT (brownfield ingestion):\n${contextSummary}`
+        : '';
+
       // Convener gets the PRD; everyone else gets a standby/wake brief.
       const prompt = member.isConvener
         ? (effectivePrd
-            ? `You are the convener for season "${season.name}". Here is the product brief / PRD for this season. Read it, break it into tasks, and coordinate the team to deliver it.\n\n---\n\n${effectivePrd}`
-            : `You are the convener for season "${season.name}". Await the product brief, then coordinate the team.`)
+            ? `You are the convener for season "${season.name}". Here is the product brief / PRD for this season. Read it, break it into tasks, and coordinate the team to deliver it.\n\n---\n\n${effectivePrd}${contextBlock}`
+            : `You are the convener for season "${season.name}". Await the product brief, then coordinate the team.${contextBlock}`)
         : `You are a cast member of season "${season.name}". Stand by for delegated tasks from the convener and begin work when assigned.`;
 
       const command = cliProvider.buildInteractiveCommand({
@@ -560,6 +609,27 @@ export function updateSeasonStatus(id: string, status: SeasonStatus): void {
   if (status === 'archived') {
     season.archivedAt = new Date().toISOString();
   }
+
+  saveSeason(id);
+  broadcastToAllWindows('season:updated', season);
+}
+
+/**
+ * Update a season's brownfield context status (and optionally its context.md
+ * path) and broadcast the change. Used by the repo-context bootstrap to surface
+ * the searching → reviewing → ready lifecycle on the control board. No-op for
+ * unknown seasons.
+ */
+export function updateSeasonContextStatus(
+  id: string,
+  contextStatus: Season['contextStatus'],
+  contextPath?: string,
+): void {
+  const season = seasons.get(id);
+  if (!season) return;
+
+  season.contextStatus = contextStatus;
+  if (contextPath) season.contextPath = contextPath;
 
   saveSeason(id);
   broadcastToAllWindows('season:updated', season);

@@ -76,6 +76,8 @@ export function registerSeasonHandlers(deps: SeasonHandlerDependencies): void {
     sourceControl?: { type: 'local' | 'github' | 'azure-devops'; repoUrl?: string };
     /** Optional Jira project key — captured + stored + displayed only. */
     jiraProjectKey?: string;
+    /** Intake mode: 'greenfield' (default) or 'brownfield' (existing repo). */
+    intake?: 'greenfield' | 'brownfield';
   }) => {
     try {
       const season = await spawnSeason(config, runtimeDeps);

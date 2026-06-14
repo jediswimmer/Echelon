@@ -16,6 +16,32 @@ export interface SeasonSourceControl {
   repoUrl?: string;
 }
 
+/**
+ * How a season is started:
+ *   • `greenfield` — a brand-new project (the default). No prior repo state to
+ *     ingest; the PRD describes what to build from scratch.
+ *   • `brownfield` — an existing, in-flight project found in a linked repo. On
+ *     spawn, Echelon bootstraps the team's context from that repo (see
+ *     {@link SeasonContextStatus}).
+ */
+export type SeasonIntake = 'greenfield' | 'brownfield';
+
+/**
+ * Lifecycle of the brownfield context bootstrap, surfaced on the control board.
+ *   • `greenfield` — not a brownfield season; no context bootstrap runs.
+ *   • `searching`  — searching repo docs / KB / prior seasons for existing context.
+ *   • `reviewing`  — no context found; a code-review/onboarding agent is mapping
+ *     the codebase to build it.
+ *   • `ready`      — a consolidated `context.md` is available to the team.
+ *   • `failed`     — the bootstrap could not complete (e.g. review agent failed).
+ */
+export type SeasonContextStatus =
+  | 'greenfield'
+  | 'searching'
+  | 'reviewing'
+  | 'ready'
+  | 'failed';
+
 export interface Season {
   id: string;
   name: string;
@@ -30,6 +56,12 @@ export interface Season {
   sourceControl?: SeasonSourceControl;
   /** Linked Jira project key (e.g. "SD"). Capture + display only (no sync yet). */
   jiraProjectKey?: string;
+  /** Greenfield (new) vs brownfield (existing, in-flight repo). Defaults greenfield. */
+  intake?: SeasonIntake;
+  /** State of the brownfield context bootstrap (see {@link SeasonContextStatus}). */
+  contextStatus?: SeasonContextStatus;
+  /** Absolute path to the consolidated `context.md` once written (within ~/.echelon). */
+  contextPath?: string;
 }
 
 export interface Character extends AgentStatus {

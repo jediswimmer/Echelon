@@ -730,6 +730,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
       sourceControl?: { type: 'local' | 'github' | 'azure-devops'; repoUrl?: string };
       /** Optional linked Jira project key (e.g. "SD") — captured + displayed only. */
       jiraProjectKey?: string;
+      /**
+       * Intake mode: `greenfield` (a brand-new project, the default) or
+       * `brownfield` (an existing, in-flight project found in the linked repo).
+       * Brownfield seasons bootstrap their context from the repo on spawn.
+       */
+      intake?: 'greenfield' | 'brownfield';
     }) => ipcRenderer.invoke('season:spawn', config),
     archive: (id: string) => ipcRenderer.invoke('season:archive', id),
     restore: (id: string) => ipcRenderer.invoke('season:restore', id),

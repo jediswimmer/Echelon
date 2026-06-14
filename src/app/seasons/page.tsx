@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Plus, RefreshCw, X, Loader2, ChevronDown, ChevronRight, ShieldCheck, ShieldAlert, ShieldOff, FolderGit2, Github, GitBranch } from 'lucide-react';
+import { Plus, RefreshCw, X, Loader2, ChevronDown, ChevronRight, ShieldCheck, ShieldAlert, ShieldOff, FolderGit2, Github, GitBranch, Sparkles, History, AlertTriangle } from 'lucide-react';
 import SeasonCard from '@/components/Echelon/SeasonCard';
 
 interface Season {
@@ -31,6 +31,36 @@ interface PostureOption {
   caption: string;
   Icon: typeof ShieldCheck;
 }
+
+/**
+ * How the season is started:
+ *   • `greenfield` — a brand-new project; the PRD describes what to build.
+ *   • `brownfield` — an existing, in-flight project found in a linked repo; the
+ *     team bootstraps its context from that repo on spawn.
+ */
+type IntakeMode = 'greenfield' | 'brownfield';
+
+interface IntakeOption {
+  value: IntakeMode;
+  label: string;
+  caption: string;
+  Icon: typeof Sparkles;
+}
+
+const INTAKE_OPTIONS: IntakeOption[] = [
+  {
+    value: 'greenfield',
+    label: 'New project',
+    caption: 'Start from scratch. Describe what the team should build.',
+    Icon: Sparkles,
+  },
+  {
+    value: 'brownfield',
+    label: 'Existing project (in flight)',
+    caption: 'Pick up an existing repo. The team searches for context, then reviews the code if none is found.',
+    Icon: History,
+  },
+];
 
 /** Where the season workspace lives / is linked to (chosen at kickoff). */
 type SourceControlMode = 'local' | 'github' | 'azure-devops';
@@ -265,6 +295,7 @@ function NewSeasonModal({
 }) {
   const [name, setName] = useState('');
   const [theme, setTheme] = useState('tbbt');
+  const [intake, setIntake] = useState<IntakeMode>('greenfield');
   const [prd, setPrd] = useState('');
   const [posture, setPosture] = useState<PermissionPosture>('normal');
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -297,7 +328,11 @@ function NewSeasonModal({
       : [];
 
     if (cleanRoster.length === 0 && !prd.trim()) {
-      setError('Describe what this team should build so the roster can be composed (or open Advanced to set one manually).');
+      setError(
+        intake === 'brownfield'
+          ? 'Give the current status of the in-flight project so the roster can be composed (or open Advanced to set one manually).'
+          : 'Describe what this team should build so the roster can be composed (or open Advanced to set one manually).',
+      );
       return;
     }
 
@@ -308,6 +343,15 @@ function NewSeasonModal({
         sourceMode === 'github'
           ? 'Enter the GitHub repo (owner/repo or URL) to clone as the workspace, or switch to Local.'
           : 'Enter the Azure DevOps repo URL to clone as the workspace, or switch to Local.',
+      );
+      return;
+    }
+
+    // Existing-project intake needs a repo to ingest. Block (with a clear ask)
+    // when brownfield is chosen but source control is still local-only.
+    if (intake === 'brownfield' && sourceMode === 'local') {
+      setError(
+        'Existing project (in flight) needs a linked repo to bootstrap context from. Link a GitHub or Azure DevOps repo under "Source control & Jira", or switch to New project.',
       );
       return;
     }
@@ -333,6 +377,7 @@ function NewSeasonModal({
           ? { type: sourceMode, repoUrl: trimmedRepo }
           : undefined,
         jiraProjectKey: jiraProjectKey.trim() || undefined,
+        intake,
       });
       if (!result?.success) {
         setError(result?.error || 'Failed to spawn season.');
@@ -378,22 +423,83 @@ function NewSeasonModal({
             </div>
           </div>
 
-          {/* PRD chat — the default path; auto-composes the team on spawn. */}
+          {/* Intake mode — New project vs Existing (in-flight) project. */}
+          <div>
+            <label className="block text-xs font-medium text-muted-foreground mb-2">
+              Project type
+            </label>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {INTAKE_OPTIONS.map(opt => {
+                const selected = intake === opt.value;
+                return (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => {
+                      setIntake(opt.value);
+                      // Existing projects need a repo — reveal the links section.
+                      if (opt.value === 'brownfield') setShowLinks(true);
+                    }}
+                    className={`text-left flex items-start gap-3 px-3 py-2.5 rounded-lg border transition-colors ${
+                      selected
+                        ? 'border-primary bg-primary/5'
+                        : 'border-border bg-background hover:border-primary/40'
+                    }`}
+                  >
+                    <opt.Icon className={`w-4 h-4 mt-0.5 shrink-0 ${selected ? 'text-primary' : 'text-muted-foreground'}`} />
+                    <span className="min-w-0">
+                      <span className="block text-sm font-medium text-foreground">{opt.label}</span>
+                      <span className="block text-[11px] mt-0.5 text-muted-foreground">{opt.caption}</span>
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+            {/* Inline warning when Existing is chosen without a linked repo. */}
+            {intake === 'brownfield' && sourceMode === 'local' && (
+              <div className="mt-2 flex items-start gap-2 text-[11px] text-amber-500 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2">
+                <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                <span>
+                  Existing projects need a linked repo so the team can bootstrap context from it. Link a
+                  GitHub or Azure DevOps repo under <span className="font-medium">Source control &amp; Jira</span> below.
+                </span>
+              </div>
+            )}
+          </div>
+
+          {/* PRD chat / current status — auto-composes the team on spawn. */}
           <div>
             <label className="block text-xs font-medium text-muted-foreground mb-1">
-              Describe what this team should build
+              {intake === 'brownfield'
+                ? 'Current status of this in-flight project'
+                : 'Describe what this team should build'}
             </label>
             <textarea
               value={prd}
               onChange={e => setPrd(e.target.value)}
               rows={6}
-              placeholder="Paste a PRD/BRD or just describe it in plain language. e.g. &quot;Build an iOS + web expense app with Postgres, Stripe billing, and SOC 2 compliance. Goal: launch an MVP in Q3…&quot;"
+              placeholder={
+                intake === 'brownfield'
+                  ? 'Where does the project stand today? What is done, what is in progress, what needs to happen next, and any known issues. The team will also search the repo (and prior context) for more detail.'
+                  : 'Paste a PRD/BRD or just describe it in plain language. e.g. "Build an iOS + web expense app with Postgres, Stripe billing, and SOC 2 compliance. Goal: launch an MVP in Q3…"'
+              }
               className="w-full px-3 py-2 text-sm bg-background border border-border rounded-lg text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-primary resize-y"
             />
             <p className="text-[11px] text-muted-foreground/70 mt-1.5">
-              On spawn, Echelon reads this and auto-composes a tier-appropriate roster (always including
-              the convener, ingestion PM, and user handler). The convener receives the full brief and
-              coordinates the team.
+              {intake === 'brownfield' ? (
+                <>
+                  On spawn, Echelon clones the linked repo and bootstraps the team&apos;s context: it
+                  searches repo docs, the knowledge base, and prior seasons for this repo. If nothing is
+                  found, it kicks off a code review to map the codebase before the team begins. A
+                  tier-appropriate roster is auto-composed from this status.
+                </>
+              ) : (
+                <>
+                  On spawn, Echelon reads this and auto-composes a tier-appropriate roster (always including
+                  the convener, ingestion PM, and user handler). The convener receives the full brief and
+                  coordinates the team.
+                </>
+              )}
             </p>
           </div>
 
