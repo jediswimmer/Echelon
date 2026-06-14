@@ -16,10 +16,10 @@ import {
 } from '@dnd-kit/core';
 import { sortableKeyboardCoordinates } from '@dnd-kit/sortable';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Plus, Loader2, RefreshCw, Search, ChevronDown, FolderOpen } from 'lucide-react';
+import { Plus, Loader2, RefreshCw, Search, ChevronDown, FolderOpen, Globe, Layers } from 'lucide-react';
 import { useElectronKanban, useKanbanAgentSync } from '@/hooks/useElectronKanban';
 import { isElectron as checkIsElectron } from '@/hooks/useElectron';
-import type { KanbanTask, KanbanColumn as KanbanColumnType, KanbanTaskCreate } from '@/types/kanban';
+import type { KanbanTask, KanbanColumn as KanbanColumnType, KanbanTaskCreate, KanbanScope } from '@/types/kanban';
 import type { AgentStatus } from '@/types/electron';
 import { KanbanColumn } from './components/KanbanColumn';
 import { KanbanCard } from './components/KanbanCard';
@@ -34,7 +34,30 @@ const AgentTerminalDialog = dynamic(
   { ssr: false }
 );
 
-export default function KanbanBoard() {
+interface KanbanBoardProps {
+  /** When set, scope the board to this season's tickets. */
+  seasonId?: string;
+  /** When true (with seasonId), hide the global/season switch and lock to the season. */
+  lockScope?: boolean;
+}
+
+interface SeasonOption {
+  id: string;
+  name: string;
+}
+
+export default function KanbanBoard({ seasonId, lockScope }: KanbanBoardProps = {}) {
+  // Scope state. A locked, season-embedded board starts in 'season' scope and
+  // cannot be switched; a standalone board defaults to 'all' (global kanban).
+  const [scope, setScope] = useState<KanbanScope>(seasonId && lockScope ? 'season' : 'all');
+  const [selectedSeasonId, setSelectedSeasonId] = useState<string | undefined>(seasonId);
+  const [seasons, setSeasons] = useState<SeasonOption[]>([]);
+  const [scopeDropdownOpen, setScopeDropdownOpen] = useState(false);
+
+  // Resolve the effective scope/season passed to the hook.
+  const effectiveSeasonId = lockScope ? seasonId : selectedSeasonId;
+  const effectiveScope: KanbanScope = scope === 'season' && !effectiveSeasonId ? 'all' : scope;
+
   const {
     tasks,
     isLoading,
@@ -45,9 +68,28 @@ export default function KanbanBoard() {
     moveTask,
     deleteTask,
     reorderTasks,
+    addComment,
+    deleteComment,
     getTasksByColumn,
     refresh,
-  } = useElectronKanban();
+  } = useElectronKanban({ scope: effectiveScope, seasonId: effectiveSeasonId });
+
+  // Load seasons for the selector (only when the switch is available).
+  useEffect(() => {
+    if (lockScope || !checkIsElectron()) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const result = await window.electronAPI?.season?.list();
+        if (cancelled) return;
+        const list = (result?.seasons ?? []) as Array<{ id: string; name: string }>;
+        setSeasons(list.map(s => ({ id: s.id, name: s.name })));
+      } catch (err) {
+        console.error('Failed to load seasons for kanban scope:', err);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [lockScope]);
 
   // Enable agent sync
   useKanbanAgentSync(tasks, updateTask, moveTask);
@@ -184,6 +226,13 @@ export default function KanbanBoard() {
     return Array.from(uniqueProjects.entries()).map(([id, name]) => ({ id, name }));
   }, [tasks]);
 
+  // Map task id → title so child cards can show their parent epic/story linkage.
+  const parentTitleById = useMemo(() => {
+    const map = new Map<string, string>();
+    tasks.forEach((task) => map.set(task.id, task.title));
+    return map;
+  }, [tasks]);
+
   // Drag handlers
   const handleDragStart = useCallback((event: DragStartEvent) => {
     const { active } = event;
@@ -250,9 +299,17 @@ export default function KanbanBoard() {
 
   // Task handlers
   const handleCreateTask = async (data: KanbanTaskCreate) => {
-    await createTask(data);
+    // Stamp the owning season when the board is scoped to one so the new task
+    // shows up in (and is filtered to) that season.
+    const seasonScopedId = effectiveScope === 'season' ? effectiveSeasonId : undefined;
+    await createTask(seasonScopedId ? { ...data, seasonId: seasonScopedId } : data);
     setShowNewTaskModal(false);
   };
+
+  // Comment handler for the card detail modal.
+  const handleAddComment = useCallback(async (taskId: string, body: string) => {
+    await addComment(taskId, body, 'user', 'You');
+  }, [addComment]);
 
   const handleEditTask = (task: KanbanTask) => {
     setEditingTask(task);
@@ -317,6 +374,96 @@ export default function KanbanBoard() {
         </div>
 
         <div className="flex items-center gap-3">
+          {/* Scope: Global ⟷ By season (+ season selector). Hidden when locked. */}
+          {!lockScope && (
+            <div className="flex items-center gap-2">
+              {/* Segmented Global / By season toggle */}
+              <div className="inline-flex items-center rounded-lg border border-border bg-secondary/50 p-0.5">
+                <button
+                  onClick={() => setScope('global')}
+                  className={`inline-flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-md transition-colors ${
+                    scope === 'global'
+                      ? 'bg-primary text-primary-foreground'
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                  title="Tasks not owned by any season"
+                >
+                  <Globe className="w-3.5 h-3.5" />
+                  Global
+                </button>
+                <button
+                  onClick={() => setScope('all')}
+                  className={`inline-flex items-center text-xs px-2.5 py-1.5 rounded-md transition-colors ${
+                    scope === 'all'
+                      ? 'bg-primary text-primary-foreground'
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                  title="All tasks across every season"
+                >
+                  All
+                </button>
+                <button
+                  onClick={() => setScope('season')}
+                  className={`inline-flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-md transition-colors ${
+                    scope === 'season'
+                      ? 'bg-primary text-primary-foreground'
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                  title="Filter to a single season"
+                >
+                  <Layers className="w-3.5 h-3.5" />
+                  By season
+                </button>
+              </div>
+
+              {/* Season selector (only meaningful in 'season' scope) */}
+              {scope === 'season' && (
+                <div className="relative">
+                  <button
+                    onClick={() => setScopeDropdownOpen(v => !v)}
+                    className="flex items-center gap-2 px-3 py-2 rounded-lg bg-secondary border border-border text-muted-foreground hover:text-foreground transition-colors text-sm min-w-[150px]"
+                  >
+                    <Layers className="w-4 h-4 shrink-0" />
+                    <span className="truncate">
+                      {seasons.find(s => s.id === selectedSeasonId)?.name || 'Select season'}
+                    </span>
+                    <ChevronDown className="w-4 h-4 ml-auto shrink-0" />
+                  </button>
+
+                  <AnimatePresence>
+                    {scopeDropdownOpen && (
+                      <>
+                        <div className="fixed inset-0 z-10" onClick={() => setScopeDropdownOpen(false)} />
+                        <motion.div
+                          initial={{ opacity: 0, y: 5 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, y: 5 }}
+                          className="absolute top-full mt-2 right-0 w-56 max-h-72 overflow-y-auto bg-card border border-border rounded-lg shadow-lg z-20 py-2"
+                        >
+                          {seasons.length === 0 && (
+                            <div className="px-4 py-2 text-sm text-muted-foreground">No seasons</div>
+                          )}
+                          {seasons.map((s) => {
+                            const isSelected = s.id === selectedSeasonId;
+                            return (
+                              <button
+                                key={s.id}
+                                onClick={() => { setSelectedSeasonId(s.id); setScopeDropdownOpen(false); }}
+                                className={`w-full text-left px-4 py-2 text-sm hover:bg-secondary truncate ${isSelected ? 'text-foreground' : 'text-muted-foreground'}`}
+                              >
+                                {s.name}
+                              </button>
+                            );
+                          })}
+                        </motion.div>
+                      </>
+                    )}
+                  </AnimatePresence>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Search */}
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -410,6 +557,7 @@ export default function KanbanBoard() {
                 onDeleteTask={handleDeleteTask}
                 onStartTask={moveTask}
                 onOpenTerminal={handleOpenTerminal}
+                parentTitleById={parentTitleById}
                 activeTaskId={activeTask?.id}
               />
             ))}
@@ -440,13 +588,17 @@ export default function KanbanBoard() {
       <AnimatePresence>
         {editingTask && editingTask.column !== 'done' && editingTask.column !== 'ongoing' && (
           <KanbanCardDetail
-            task={editingTask}
+            // Re-read the live task from state so comments added via broadcast appear instantly.
+            task={tasks.find(t => t.id === editingTask.id) ?? editingTask}
+            parentTitle={editingTask.parentId ? parentTitleById.get(editingTask.parentId) : undefined}
             onClose={() => setEditingTask(null)}
             onUpdate={handleUpdateTask}
             onDelete={() => {
               handleDeleteTask(editingTask.id);
               setEditingTask(null);
             }}
+            onAddComment={handleAddComment}
+            onDeleteComment={deleteComment}
           />
         )}
       </AnimatePresence>

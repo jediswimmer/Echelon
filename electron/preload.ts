@@ -455,8 +455,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // Kanban Board
   kanban: {
-    list: () =>
-      ipcRenderer.invoke('kanban:list'),
+    list: (opts?: { seasonId?: string; scope?: 'all' | 'season' | 'global' }) =>
+      ipcRenderer.invoke('kanban:list', opts),
     get: (id: string) =>
       ipcRenderer.invoke('kanban:get', id),
     create: (params: {
@@ -467,6 +467,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
       requiredSkills?: string[];
       priority?: 'low' | 'medium' | 'high';
       labels?: string[];
+      seasonId?: string;
+      issueType?: 'epic' | 'story' | 'task';
+      parentId?: string;
+      jiraKey?: string;
     }) =>
       ipcRenderer.invoke('kanban:create', params),
     update: (params: {
@@ -488,6 +492,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('kanban:reorder', params),
     generate: (params: { prompt: string; availableProjects: Array<{ path: string; name: string }> }) =>
       ipcRenderer.invoke('kanban:generate', params),
+    // Comment threads
+    commentList: (taskId: string) =>
+      ipcRenderer.invoke('kanban:comment-list', taskId),
+    commentAdd: (taskId: string, comment: { author: string; authorName?: string; body: string; source?: 'local' | 'jira' }) =>
+      ipcRenderer.invoke('kanban:comment-add', { taskId, comment }),
+    commentDelete: (taskId: string, commentId: string) =>
+      ipcRenderer.invoke('kanban:comment-delete', { taskId, commentId }),
     // Event listeners
     onTaskCreated: (callback: (task: unknown) => void) => {
       const listener = (_: unknown, task: unknown) => callback(task);

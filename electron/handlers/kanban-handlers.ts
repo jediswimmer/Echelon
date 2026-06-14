@@ -11,12 +11,25 @@ import { generateTaskFromPrompt } from '../utils/kanban-generate';
 
 // Types matching frontend
 type KanbanColumn = 'backlog' | 'planned' | 'ongoing' | 'done';
+type KanbanIssueType = 'epic' | 'story' | 'task';
+type KanbanScope = 'all' | 'season' | 'global';
 
 interface TaskAttachment {
   path: string;
   name: string;
   type: 'image' | 'pdf' | 'document' | 'other';
   size?: number;
+}
+
+interface KanbanComment {
+  id: string;
+  author: string;
+  authorName?: string;
+  body: string;
+  createdAt: string;
+  updatedAt?: string;
+  source: 'local' | 'jira';
+  jiraCommentId?: string;
 }
 
 interface KanbanTask {
@@ -38,6 +51,14 @@ interface KanbanTask {
   labels: string[];
   completionSummary?: string;
   attachments: TaskAttachment[];
+  // Season + Jira-style hierarchy (all optional, back-compatible)
+  seasonId?: string;
+  issueType?: KanbanIssueType;
+  parentId?: string;
+  comments?: KanbanComment[];
+  jiraKey?: string;
+  jiraStatus?: string;
+  epicColor?: string;
 }
 
 interface KanbanTaskCreate {
@@ -49,6 +70,11 @@ interface KanbanTaskCreate {
   priority?: 'low' | 'medium' | 'high';
   labels?: string[];
   attachments?: TaskAttachment[];
+  // Season + Jira-style hierarchy (all optional, back-compatible)
+  seasonId?: string;
+  issueType?: KanbanIssueType;
+  parentId?: string;
+  jiraKey?: string;
 }
 
 interface KanbanTaskUpdate {
@@ -110,10 +136,20 @@ function emitTaskEvent(eventName: string, task: KanbanTask): void {
 export function registerKanbanHandlers(dependencies: KanbanHandlerDependencies): void {
   deps = dependencies;
 
-  // List all tasks
-  ipcMain.handle('kanban:list', async () => {
+  // List tasks, optionally filtered by season scope.
+  //   • no arg / scope 'all'        → every task (back-compat: global kanban)
+  //   • { seasonId, scope:'season' } → only tasks owned by that season
+  //   • scope 'global'              → only tasks with no seasonId (legacy/manual)
+  ipcMain.handle('kanban:list', async (_event, opts?: { seasonId?: string; scope?: KanbanScope }) => {
     try {
-      const tasks = loadTasks();
+      const allTasks = loadTasks();
+      const scope = opts?.scope ?? 'all';
+      let tasks = allTasks;
+      if (scope === 'season' && opts?.seasonId) {
+        tasks = allTasks.filter(t => t.seasonId === opts.seasonId);
+      } else if (scope === 'global') {
+        tasks = allTasks.filter(t => !t.seasonId);
+      }
       return { tasks };
     } catch (err) {
       console.error('Error listing kanban tasks:', err);
@@ -149,6 +185,12 @@ export function registerKanbanHandlers(dependencies: KanbanHandlerDependencies):
         order: maxOrder + 1,
         labels: params.labels || [],
         attachments: params.attachments || [],
+        // Season + Jira-style hierarchy (hydrated with defaults for back-compat)
+        seasonId: params.seasonId,
+        issueType: params.issueType || 'task',
+        parentId: params.parentId,
+        comments: [],
+        jiraKey: params.jiraKey,
       };
 
       tasks.push(newTask);
@@ -448,8 +490,92 @@ export function registerKanbanHandlers(dependencies: KanbanHandlerDependencies):
       return { success: false, error: err instanceof Error ? err.message : 'Failed to get task' };
     }
   });
+
+  // List a task's comments
+  ipcMain.handle('kanban:comment-list', async (_event, taskId: string) => {
+    try {
+      const tasks = loadTasks();
+      const task = tasks.find(t => t.id === taskId);
+      if (!task) {
+        return { success: false, error: 'Task not found', comments: [] };
+      }
+      return { success: true, comments: task.comments ?? [] };
+    } catch (err) {
+      console.error('Error listing kanban comments:', err);
+      return { success: false, error: err instanceof Error ? err.message : 'Failed to list comments', comments: [] };
+    }
+  });
+
+  // Add a comment to a task
+  ipcMain.handle('kanban:comment-add', async (_event, params: {
+    taskId: string;
+    comment: { author: string; authorName?: string; body: string; source?: 'local' | 'jira' };
+  }) => {
+    try {
+      if (!params?.taskId) {
+        return { success: false, error: 'taskId is required' };
+      }
+      const tasks = loadTasks();
+      const index = tasks.findIndex(t => t.id === params.taskId);
+      if (index === -1) {
+        return { success: false, error: 'Task not found' };
+      }
+
+      const body = (params.comment?.body ?? '').trim();
+      if (!body) {
+        return { success: false, error: 'Comment body is required' };
+      }
+
+      const task = tasks[index];
+      const comment: KanbanComment = {
+        id: uuidv4(),
+        author: params.comment.author || 'user',
+        authorName: params.comment.authorName,
+        body,
+        createdAt: new Date().toISOString(),
+        source: params.comment.source || 'local',
+      };
+
+      task.comments = [...(task.comments ?? []), comment];
+      task.updatedAt = new Date().toISOString();
+
+      saveTasks(tasks);
+      emitTaskEvent('kanban:task-updated', task);
+
+      return { success: true, comment };
+    } catch (err) {
+      console.error('Error adding kanban comment:', err);
+      return { success: false, error: err instanceof Error ? err.message : 'Failed to add comment' };
+    }
+  });
+
+  // Delete a comment from a task
+  ipcMain.handle('kanban:comment-delete', async (_event, params: { taskId: string; commentId: string }) => {
+    try {
+      if (!params?.taskId || !params?.commentId) {
+        return { success: false, error: 'taskId and commentId are required' };
+      }
+      const tasks = loadTasks();
+      const index = tasks.findIndex(t => t.id === params.taskId);
+      if (index === -1) {
+        return { success: false, error: 'Task not found' };
+      }
+
+      const task = tasks[index];
+      task.comments = (task.comments ?? []).filter(c => c.id !== params.commentId);
+      task.updatedAt = new Date().toISOString();
+
+      saveTasks(tasks);
+      emitTaskEvent('kanban:task-updated', task);
+
+      return { success: true };
+    } catch (err) {
+      console.error('Error deleting kanban comment:', err);
+      return { success: false, error: err instanceof Error ? err.message : 'Failed to delete comment' };
+    }
+  });
 }
 
 // Export for direct use in automation service
 export { loadTasks, saveTasks, emitTaskEvent };
-export type { KanbanTask, KanbanColumn };
+export type { KanbanTask, KanbanColumn, KanbanComment, KanbanIssueType };

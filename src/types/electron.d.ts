@@ -22,6 +22,20 @@ export interface AgentEvent {
   exitCode?: number;
 }
 
+export type KanbanIssueTypeElectron = 'epic' | 'story' | 'task';
+export type KanbanScopeElectron = 'all' | 'season' | 'global';
+
+export interface KanbanCommentElectron {
+  id: string;
+  author: string;
+  authorName?: string;
+  body: string;
+  createdAt: string;
+  updatedAt?: string;
+  source: 'local' | 'jira';
+  jiraCommentId?: string;
+}
+
 export interface KanbanTaskElectron {
   id: string;
   title: string;
@@ -37,6 +51,14 @@ export interface KanbanTaskElectron {
   updatedAt: string;
   order: number;
   labels: string[];
+  // Season + Jira-style hierarchy (all optional, back-compatible)
+  seasonId?: string;
+  issueType?: KanbanIssueTypeElectron;
+  parentId?: string;
+  comments?: KanbanCommentElectron[];
+  jiraKey?: string;
+  jiraStatus?: string;
+  epicColor?: string;
 }
 
 export interface VaultDocumentElectron {
@@ -745,7 +767,7 @@ export interface ElectronAPI {
 
   // Kanban board
   kanban?: {
-    list: () => Promise<{ tasks: KanbanTaskElectron[]; error?: string }>;
+    list: (opts?: { seasonId?: string; scope?: KanbanScopeElectron }) => Promise<{ tasks: KanbanTaskElectron[]; error?: string }>;
     get: (id: string) => Promise<{ success: boolean; task?: KanbanTaskElectron; error?: string }>;
     create: (params: {
       title: string;
@@ -755,6 +777,10 @@ export interface ElectronAPI {
       requiredSkills?: string[];
       priority?: 'low' | 'medium' | 'high';
       labels?: string[];
+      seasonId?: string;
+      issueType?: KanbanIssueTypeElectron;
+      parentId?: string;
+      jiraKey?: string;
     }) => Promise<{ success: boolean; task?: KanbanTaskElectron; error?: string }>;
     update: (params: {
       id: string;
@@ -798,9 +824,24 @@ export interface ElectronAPI {
       };
       error?: string;
     }>;
+    commentList: (taskId: string) => Promise<{ success: boolean; comments: KanbanCommentElectron[]; error?: string }>;
+    commentAdd: (taskId: string, comment: {
+      author: string;
+      authorName?: string;
+      body: string;
+      source?: 'local' | 'jira';
+    }) => Promise<{ success: boolean; comment?: KanbanCommentElectron; error?: string }>;
+    commentDelete: (taskId: string, commentId: string) => Promise<{ success: boolean; error?: string }>;
     onTaskCreated: (callback: (task: KanbanTaskElectron) => void) => () => void;
     onTaskUpdated: (callback: (task: KanbanTaskElectron) => void) => () => void;
     onTaskDeleted: (callback: (event: { id: string }) => void) => () => void;
+  };
+
+  // Seasons (Echelon) — minimal typing for the kanban scope selector.
+  // The full surface is consumed elsewhere via a loose `any` cast.
+  season?: {
+    list: () => Promise<{ seasons: Array<{ id: string; name: string }>; error?: string }>;
+    [key: string]: unknown;
   };
 
   // World (generative zones)

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { ArrowLeft, Users, Shield, Settings, Archive, RotateCcw, MessagesSquare, KanbanSquare, Github, GitBranch, FolderGit2, FolderSearch, FileText, Loader2, Search, ScanSearch, CheckCircle2, AlertTriangle } from 'lucide-react';
 import ThemeBadge from '@/components/Echelon/ThemeBadge';
+import KanbanBoard from '@/components/KanbanBoard';
 import Link from 'next/link';
 
 interface SeasonSourceControl {
@@ -610,25 +611,24 @@ function ConversationLogTab() {
   );
 }
 
-/* ─── Tickets Tab (next build placeholder) ───────────────────── */
+/* ─── Tickets Tab (season-scoped kanban board) ───────────────── */
 
 function TicketsTab({ season }: { season: Season }) {
   return (
-    <div className="flex flex-col items-center justify-center h-48 text-muted-foreground">
-      <KanbanSquare className="w-8 h-8 mb-2 opacity-50" />
-      {season.jiraProjectKey ? (
-        <>
-          <p className="text-sm">
-            Linked to JIRA <span className="font-mono text-foreground">{season.jiraProjectKey.toUpperCase()}</span>
-          </p>
-          <p className="text-xs mt-1">Ticket sync with this Jira project lands in the next build</p>
-        </>
-      ) : (
-        <>
-          <p className="text-sm">Tickets</p>
-          <p className="text-xs mt-1">The Jira-style kanban of season tasks lands in the next build</p>
-        </>
+    <div className="flex flex-col h-full min-h-0">
+      {/* Linked-Jira chip (preserved from the prior placeholder). */}
+      {season.jiraProjectKey && (
+        <div className="mb-2 shrink-0">
+          <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-secondary border border-border text-muted-foreground">
+            <KanbanSquare className="w-3 h-3 shrink-0" />
+            <span>Linked to JIRA <span className="font-mono text-foreground">{season.jiraProjectKey.toUpperCase()}</span></span>
+          </span>
+        </div>
       )}
+      {/* Season-scoped, lock the board to this season's tickets. */}
+      <div className="flex-1 min-h-0">
+        <KanbanBoard seasonId={season.id} lockScope />
+      </div>
     </div>
   );
 }
