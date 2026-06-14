@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { ArrowLeft, Users, Shield, Settings, Archive, RotateCcw, MessagesSquare, KanbanSquare, Github, GitBranch, FolderGit2, FolderSearch, FileText, Loader2, Search, ScanSearch, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, Users, Shield, Settings, Archive, RotateCcw, MessagesSquare, KanbanSquare, Github, GitBranch, FolderGit2, FolderSearch, FileText, Loader2, Search, ScanSearch, CheckCircle2, AlertTriangle, Compass } from 'lucide-react';
 import ThemeBadge from '@/components/Echelon/ThemeBadge';
 import KanbanBoard from '@/components/KanbanBoard';
 import ConversationLogTab from './ConversationLogTab';
@@ -17,6 +17,23 @@ interface SeasonSourceControl {
 
 type SeasonIntake = 'greenfield' | 'brownfield';
 type SeasonContextStatus = 'greenfield' | 'searching' | 'reviewing' | 'ready' | 'failed';
+
+interface SeasonDirectionOption {
+  id: string;
+  title: string;
+  kind: 'epic' | 'story';
+}
+
+interface SeasonDirectionRequest {
+  id: string;
+  question: string;
+  options: SeasonDirectionOption[];
+  status: 'open' | 'answered';
+  answer?: string;
+  chosenOptionId?: string;
+  createdAt: string;
+  answeredAt?: string;
+}
 
 interface Season {
   id: string;
@@ -33,6 +50,10 @@ interface Season {
   intake?: SeasonIntake;
   contextStatus?: SeasonContextStatus;
   contextPath?: string;
+  /** PM grooming completed timestamp (17c). */
+  groomedAt?: string;
+  /** Pending "needs your direction" prompt for brownfield seasons (17c). */
+  directionRequest?: SeasonDirectionRequest;
 }
 
 /** Chip metadata for the brownfield context-bootstrap status. */
@@ -266,6 +287,9 @@ export default function SeasonDetailPage() {
         </div>
       </div>
 
+      {/* Direction request (17c): the team needs the user to pick a starting point. */}
+      <DirectionCard season={season} />
+
       {/* Tabs */}
       <div className="flex items-center gap-2 mb-4 border-b border-border">
         {tabs.map(tab => (
@@ -327,6 +351,111 @@ function postureLabel(mode?: string): string {
     case 'normal': return 'Approve each';
     default: return '—';
   }
+}
+
+/* ─── Direction card (17c — brownfield "needs your direction") ── */
+
+/**
+ * Prominent prompt shown when a brownfield season's PM has reviewed the repo and
+ * needs the user to pick the first Epic/Story to tackle. The user selects a
+ * candidate (or types free-text) and submits; on answer the season broadcasts an
+ * update and this card collapses to a "Working on: …" confirmation.
+ */
+function DirectionCard({ season }: { season: Season }) {
+  const request = season.directionRequest;
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [freeText, setFreeText] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  const api = typeof window !== 'undefined'
+    ? (window as unknown as { electronAPI: any }).electronAPI
+    : null;
+
+  if (!request) return null;
+
+  // Answered → a compact confirmation of what the team was directed to start.
+  if (request.status === 'answered') {
+    const chosen = request.options.find(o => o.id === request.chosenOptionId);
+    const startedLabel = chosen?.title || request.answer;
+    if (!startedLabel) return null;
+    return (
+      <div className="mb-4 bg-card border border-border rounded-lg p-3 flex items-center gap-2">
+        <CheckCircle2 className="w-4 h-4 text-green-500 shrink-0" />
+        <span className="text-sm text-muted-foreground">
+          Working on: <span className="font-medium text-foreground">{startedLabel}</span>
+        </span>
+      </div>
+    );
+  }
+
+  const submit = async () => {
+    if (!api?.season?.direction?.answer || submitting) return;
+    const answer = freeText.trim() || undefined;
+    if (!selectedId && !answer) return;
+    setSubmitting(true);
+    try {
+      await api.season.direction.answer(season.id, {
+        chosenOptionId: selectedId || undefined,
+        answer,
+      });
+      // The card collapses when the `season:updated` broadcast flips status to
+      // 'answered'; no local state change needed.
+    } catch (err) {
+      console.error('Failed to submit direction:', err);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="mb-4 bg-card border border-primary/40 rounded-lg p-4">
+      <div className="flex items-center gap-2 mb-2">
+        <Compass className="w-4 h-4 text-primary shrink-0" />
+        <h3 className="text-sm font-semibold text-foreground">Team needs your direction</h3>
+      </div>
+      <p className="text-xs text-muted-foreground mb-3">{request.question}</p>
+
+      <div className="space-y-1.5 mb-3">
+        {request.options.map(opt => (
+          <button
+            key={opt.id}
+            type="button"
+            onClick={() => { setSelectedId(opt.id); setFreeText(''); }}
+            className={`
+              w-full text-left flex items-center gap-2 px-3 py-2 rounded-lg border text-sm transition-colors
+              ${selectedId === opt.id
+                ? 'border-primary bg-primary/10 text-foreground'
+                : 'border-border bg-secondary/40 text-muted-foreground hover:text-foreground hover:border-primary/30'
+              }
+            `}
+          >
+            <span className="text-[10px] uppercase font-medium px-1.5 py-0.5 rounded bg-secondary border border-border shrink-0">
+              {opt.kind}
+            </span>
+            <span className="truncate">{opt.title}</span>
+          </button>
+        ))}
+      </div>
+
+      <input
+        type="text"
+        value={freeText}
+        onChange={e => { setFreeText(e.target.value); if (e.target.value) setSelectedId(null); }}
+        placeholder="…or describe a different starting point"
+        className="w-full mb-3 px-3 py-2 text-sm rounded-lg bg-background border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/50"
+      />
+
+      <button
+        type="button"
+        onClick={submit}
+        disabled={submitting || (!selectedId && !freeText.trim())}
+        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-50"
+      >
+        {submitting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Compass className="w-3.5 h-3.5" />}
+        Start the team
+      </button>
+    </div>
+  );
 }
 
 /* ─── Context panel (brownfield ingestion) ───────────────────── */

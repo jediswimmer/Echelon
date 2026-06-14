@@ -6,6 +6,7 @@ import {
   launchSeasonAgents,
   archiveSeason,
   restoreSeason,
+  answerSeasonDirection,
 } from '../core/season-manager';
 import type { SeasonRuntimeDeps } from '../core/season-manager';
 import { readConversation } from '../core/conversation-log';
@@ -132,6 +133,22 @@ export function registerSeasonHandlers(deps: SeasonHandlerDependencies): void {
       return { characters: [], error: String(err) };
     }
   });
+
+  // Answer a season's "needs your direction" prompt (17c). Records the choice and
+  // — when an epic/story was chosen — moves its children into `planned` so the
+  // existing assign-automation kicks the team off.
+  ipcMain.handle(
+    'season:direction:answer',
+    async (_event, seasonId: string, payload: { answer?: string; chosenOptionId?: string }) => {
+      try {
+        await answerSeasonDirection(seasonId, payload ?? {});
+        return { success: true, season: getSeason(seasonId) };
+      } catch (err) {
+        console.error('Failed to answer season direction:', err);
+        return { success: false, error: String(err) };
+      }
+    },
+  );
 
   // List a season's conversation / crosstalk log (17b). Seeds the Conversation
   // tab; live updates arrive via the `season:conversation:appended` broadcast.

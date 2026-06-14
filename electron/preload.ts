@@ -753,6 +753,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     archive: (id: string) => ipcRenderer.invoke('season:archive', id),
     restore: (id: string) => ipcRenderer.invoke('season:restore', id),
     characters: (seasonId: string) => ipcRenderer.invoke('season:characters', seasonId),
+    // Direction request (17c): answer the "needs your direction" prompt.
+    direction: {
+      answer: (seasonId: string, payload: { answer?: string; chosenOptionId?: string }) =>
+        ipcRenderer.invoke('season:direction:answer', seasonId, payload),
+    },
     onUpdated: (callback: (season: any) => void) => {
       const listener = (_: unknown, season: any) => callback(season);
       ipcRenderer.on('season:updated', listener);

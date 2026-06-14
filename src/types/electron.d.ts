@@ -61,6 +61,24 @@ export interface KanbanTaskElectron {
   epicColor?: string;
 }
 
+// Season direction request (17c) — brownfield "needs your direction" prompt.
+export interface SeasonDirectionOptionElectron {
+  id: string;
+  title: string;
+  kind: 'epic' | 'story';
+}
+
+export interface SeasonDirectionRequestElectron {
+  id: string;
+  question: string;
+  options: SeasonDirectionOptionElectron[];
+  status: 'open' | 'answered';
+  answer?: string;
+  chosenOptionId?: string;
+  createdAt: string;
+  answeredAt?: string;
+}
+
 // Season conversation / crosstalk log (17b).
 export type ConversationKind = 'output' | 'status' | 'delegation' | 'system';
 
@@ -870,6 +888,13 @@ export interface ElectronAPI {
         opts?: { kind?: ConversationKind; agentId?: string; limit?: number; sinceTs?: string },
       ) => Promise<{ entries: ConversationEntry[]; error?: string }>;
       onAppended: (callback: (entry: ConversationEntry) => void) => () => void;
+    };
+    // Direction request (17c): answer the "needs your direction" prompt.
+    direction?: {
+      answer: (
+        seasonId: string,
+        payload: { answer?: string; chosenOptionId?: string },
+      ) => Promise<{ success: boolean; season?: unknown; error?: string }>;
     };
     [key: string]: unknown;
   };

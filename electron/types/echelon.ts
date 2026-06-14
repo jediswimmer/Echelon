@@ -50,6 +50,36 @@ export type SeasonContextStatus =
   | 'ready'
   | 'failed';
 
+/**
+ * One candidate direction the team surfaced for the user to choose from when a
+ * brownfield season needs a starting point (17c). Each option maps to a kanban
+ * epic/story created at review time (`id` = that task id).
+ */
+export interface SeasonDirectionOption {
+  id: string;
+  title: string;
+  kind: 'epic' | 'story';
+}
+
+/**
+ * A pending "the team needs your direction" prompt, surfaced on the control
+ * board for brownfield seasons. After the PM reviews the repo it proposes
+ * candidate epics/stories and asks which to tackle first; answering moves the
+ * chosen epic's children into the `planned` column (17c).
+ */
+export interface SeasonDirectionRequest {
+  id: string;
+  question: string;
+  /** Candidate epics/stories from the review (each maps to a created task). */
+  options: SeasonDirectionOption[];
+  status: 'open' | 'answered';
+  /** Chosen option id OR free-text the user typed. */
+  answer?: string;
+  chosenOptionId?: string;
+  createdAt: string;
+  answeredAt?: string;
+}
+
 export interface Season {
   id: string;
   name: string;
@@ -70,6 +100,16 @@ export interface Season {
   contextStatus?: SeasonContextStatus;
   /** Absolute path to the consolidated `context.md` once written (within ~/.echelon). */
   contextPath?: string;
+  /**
+   * Set once the PM has groomed the starting backlog for this season (17c).
+   * Guards against re-grooming on every app restart / season relaunch.
+   */
+  groomedAt?: string;
+  /**
+   * Pending "the team needs your direction" prompt for brownfield seasons (17c).
+   * Present + `status: 'open'` ⇒ the control board renders a direction card.
+   */
+  directionRequest?: SeasonDirectionRequest;
 }
 
 export interface Character extends AgentStatus {

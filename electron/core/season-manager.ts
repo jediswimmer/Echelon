@@ -493,6 +493,22 @@ export async function launchSeasonAgents(
   }
 
   deps.saveAgents();
+
+  // ── Greenfield grooming (17c) ──────────────────────────────────────────────
+  // After the team is launched, a greenfield season with a PRD has the PM groom
+  // a starting Epic/Story/Task backlog. Fire-and-forget so it never blocks the
+  // spawn IPC response; grooming is internally guarded + resilient (never throws).
+  // Brownfield grooming is triggered from repo-context once context is `ready`.
+  if (season.intake !== 'brownfield' && effectivePrd && effectivePrd.trim()) {
+    void (async () => {
+      try {
+        const { groomBacklogFromPRD } = await import('./grooming');
+        await groomBacklogFromPRD(id, effectivePrd);
+      } catch (err) {
+        console.error(`launchSeasonAgents: greenfield grooming failed for season ${id}:`, err);
+      }
+    })();
+  }
 }
 
 /**
@@ -697,6 +713,94 @@ export function removeCharacterFromSeason(seasonId: string, characterId: string)
   season.characterIds = season.characterIds.filter(id => id !== characterId);
   saveSeason(seasonId);
   broadcastToAllWindows('season:updated', season);
+}
+
+/**
+ * Re-broadcast a season's current state to all windows (e.g. after grooming
+ * mutates it in place). No-op for unknown seasons. Used by the 17c grooming flow
+ * so it can persist + broadcast without importing the lower-level broadcast util.
+ */
+export function broadcastSeasonUpdated(id: string): void {
+  const season = seasons.get(id);
+  if (!season) return;
+  broadcastToAllWindows('season:updated', season);
+}
+
+/**
+ * Record the user's answer to a season's pending direction request (17c) and
+ * start the team on the chosen path. Marks the request `answered`, persists +
+ * broadcasts, and — when `chosenOptionId` maps to a seeded epic/story — moves its
+ * children (or the chosen story's tasks) into the `planned` column so the existing
+ * assign-automation kicks the team off. No-op for unknown seasons / no open request.
+ */
+export async function answerSeasonDirection(
+  seasonId: string,
+  payload: { answer?: string; chosenOptionId?: string },
+): Promise<void> {
+  const season = seasons.get(seasonId);
+  if (!season || !season.directionRequest) return;
+
+  const request = season.directionRequest;
+  request.status = 'answered';
+  request.answer = payload.answer;
+  request.chosenOptionId = payload.chosenOptionId;
+  request.answeredAt = new Date().toISOString();
+  saveSeason(seasonId);
+  broadcastToAllWindows('season:updated', season);
+
+  // Resolve the chosen option (if any) to its seeded epic/story task.
+  const chosen = payload.chosenOptionId
+    ? request.options.find(o => o.id === payload.chosenOptionId)
+    : undefined;
+
+  // Lazy import to avoid a static cycle (kanban-handlers ← grooming ← season-manager).
+  const { loadTasks, moveTaskToPlanned } = await import('../handlers/kanban-handlers');
+  const { appendConversationEntry } = await import('./conversation-log');
+
+  let startedTitle: string | undefined;
+
+  if (chosen) {
+    startedTitle = chosen.title;
+    const tasks = loadTasks().filter(t => t.seasonId === seasonId);
+
+    // Collect the leaf tasks to start:
+    //   • epic  → its child stories' tasks (and any direct child tasks).
+    //   • story → its direct child tasks.
+    const leafTaskIds: string[] = [];
+    if (chosen.kind === 'epic') {
+      const storyIds = tasks.filter(t => t.parentId === chosen.id && t.issueType === 'story').map(t => t.id);
+      for (const t of tasks) {
+        if (t.issueType === 'task' && (t.parentId === chosen.id || (t.parentId && storyIds.includes(t.parentId)))) {
+          leafTaskIds.push(t.id);
+        }
+      }
+    } else {
+      for (const t of tasks) {
+        if (t.issueType === 'task' && t.parentId === chosen.id) leafTaskIds.push(t.id);
+      }
+    }
+
+    // If the candidate had no seeded child tasks (brownfield candidates are bare
+    // epics/stories), start the chosen epic/story itself so the team has a unit
+    // of work to pick up.
+    const toStart = leafTaskIds.length > 0 ? leafTaskIds : [chosen.id];
+    for (const id of toStart) {
+      try {
+        await moveTaskToPlanned(id);
+      } catch (err) {
+        console.error(`answerSeasonDirection: failed to start task ${id}:`, err);
+      }
+    }
+  }
+
+  appendConversationEntry(seasonId, {
+    agentId: 'system',
+    canonName: 'PM',
+    kind: 'system',
+    text: startedTitle
+      ? `User directed the team to start: ${startedTitle}`
+      : `User answered the direction request${payload.answer ? `: ${payload.answer}` : ''}.`,
+  });
 }
 
 export function getSeason(id: string): Season | undefined {

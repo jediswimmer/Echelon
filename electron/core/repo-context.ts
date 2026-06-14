@@ -113,6 +113,27 @@ function setContextStatus(
   updateSeasonContextStatus(seasonId, status, contextPath);
 }
 
+/**
+ * Once brownfield context is `ready`, kick the PM's repo review → candidate
+ * epics → "needs your direction" prompt (17c). Fire-and-forget so it never blocks
+ * the bootstrap; the grooming routine is internally guarded (runs once) and
+ * resilient (never throws). Re-resolves the season so it has the latest
+ * contextPath set by {@link setContextStatus}.
+ */
+function triggerBrownfieldGrooming(seasonId: string): void {
+  void (async () => {
+    try {
+      const { getSeason } = await import('./season-manager');
+      const season = getSeason(seasonId);
+      if (!season) return;
+      const { reviewBrownfieldAndAskDirection } = await import('./grooming');
+      await reviewBrownfieldAndAskDirection(seasonId, season.workspacePath);
+    } catch (err) {
+      console.error(`repo-context: brownfield grooming failed for season ${seasonId}:`, err);
+    }
+  })();
+}
+
 // ─── Step 1a: repo docs in the cloned workspace ───────────────────────────────
 
 function searchRepoDocs(workspacePath: string): ContextSource[] {
@@ -469,6 +490,7 @@ function watchReviewCompletion(
     // Context file written ⇒ ready.
     if (fs.existsSync(contextPath)) {
       setContextStatus(seasonId, 'ready', contextPath);
+      triggerBrownfieldGrooming(seasonId);
       return;
     }
 
@@ -480,8 +502,11 @@ function watchReviewCompletion(
         setTimeout(() => {
           if (fs.existsSync(contextPath)) {
             setContextStatus(seasonId, 'ready', contextPath);
+            triggerBrownfieldGrooming(seasonId);
           } else {
-            setContextStatus(seasonId, reviewer.status === 'error' ? 'failed' : 'ready', contextPath);
+            const finalStatus = reviewer.status === 'error' ? 'failed' : 'ready';
+            setContextStatus(seasonId, finalStatus, contextPath);
+            if (finalStatus === 'ready') triggerBrownfieldGrooming(seasonId);
           }
         }, 1_000);
         return;
@@ -546,6 +571,8 @@ export async function bootstrapRepoContext(
     }
     await mirrorContextToKb(season, repoUrl, body);
     setContextStatus(season.id, 'ready', written ?? contextPath);
+    // Context is ready ⇒ have the PM review the repo + ask the user for direction.
+    triggerBrownfieldGrooming(season.id);
 
     const originList = sources.map((s) => s.origin).join(', ');
     return {
