@@ -1,6 +1,13 @@
 ---
 character_name: Jeff Bezos
 archetype: advisory-board-sme
+theme: tbbt
+beat_interval: event-driven
+silent_fail_checks:
+  - customer_context_available
+  - service_architecture_documented
+  - prior_orchestration_decisions_loaded
+  - mempalace_available
 ---
 
 # HEARTBEAT.md — Jeff Bezos's Heartbeat Configuration

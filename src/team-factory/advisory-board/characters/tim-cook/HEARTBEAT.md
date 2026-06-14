@@ -1,6 +1,13 @@
 ---
 character_name: Tim Cook
 archetype: advisory-board-sme
+theme: tbbt
+beat_interval: event-driven
+silent_fail_checks:
+  - component_documentation_available
+  - integration_map_accessible
+  - prior_integration_decisions_loaded
+  - mempalace_available
 ---
 
 # HEARTBEAT.md — Tim Cook's Heartbeat Configuration

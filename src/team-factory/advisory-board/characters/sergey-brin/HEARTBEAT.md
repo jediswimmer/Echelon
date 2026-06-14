@@ -1,6 +1,13 @@
 ---
 character_name: Sergey Brin
 archetype: advisory-board-sme
+theme: tbbt
+beat_interval: event-driven
+silent_fail_checks:
+  - data_context_available
+  - current_analytics_architecture_documented
+  - prior_analytics_decisions_loaded
+  - mempalace_available
 ---
 
 # HEARTBEAT.md — Sergey Brin's Heartbeat Configuration
