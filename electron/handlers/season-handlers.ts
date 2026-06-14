@@ -8,6 +8,8 @@ import {
   restoreSeason,
 } from '../core/season-manager';
 import type { SeasonRuntimeDeps } from '../core/season-manager';
+import { readConversation } from '../core/conversation-log';
+import type { ConversationKind } from '../core/conversation-log';
 import type { AgentStatus, AgentPermissionMode, AppSettings } from '../types';
 
 export interface SeasonHandlerDependencies {
@@ -130,4 +132,22 @@ export function registerSeasonHandlers(deps: SeasonHandlerDependencies): void {
       return { characters: [], error: String(err) };
     }
   });
+
+  // List a season's conversation / crosstalk log (17b). Seeds the Conversation
+  // tab; live updates arrive via the `season:conversation:appended` broadcast.
+  ipcMain.handle(
+    'season:conversation:list',
+    async (
+      _event,
+      seasonId: string,
+      opts?: { kind?: ConversationKind; agentId?: string; limit?: number; sinceTs?: string },
+    ) => {
+      try {
+        return { entries: readConversation(seasonId, opts) };
+      } catch (err) {
+        console.error('Failed to list season conversation:', err);
+        return { entries: [], error: String(err) };
+      }
+    },
+  );
 }

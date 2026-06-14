@@ -4,6 +4,15 @@ import { RouteApp, RouteContext } from './types';
 import { AgentStatus } from '../../types';
 import { broadcastToAllWindows } from '../../utils/broadcast';
 import { scheduleTick } from '../../utils/agents-tick';
+import { appendConversationEntry } from '../../core/conversation-log';
+import { createHash } from 'crypto';
+
+/**
+ * Per-agent fingerprint (sha1) of the last clean output we logged to the season
+ * conversation log. Used to dedupe the full-transcript reposts the output hook
+ * tends to send, without retaining the (potentially large) transcript text. (17b)
+ */
+const lastLoggedOutput = new Map<string, string>();
 
 export function registerHooksRoutes(app: RouteApp, ctx: RouteContext): void {
   // POST /api/hooks/output — capture clean text output from agent transcript
@@ -23,6 +32,24 @@ export function registerHooksRoutes(app: RouteApp, ctx: RouteContext): void {
     if (agent) {
       agent.lastCleanOutput = output;
       saveAgents();
+
+      // 17b — season comms log: capture clean transcript output for season
+      // agents only, de-duplicating consecutive identical reposts.
+      if (agent.seasonId) {
+        const fingerprint = createHash('sha1').update(output ?? '').digest('hex');
+        const prev = lastLoggedOutput.get(agent.id);
+        if (prev !== fingerprint) {
+          lastLoggedOutput.set(agent.id, fingerprint);
+          appendConversationEntry(agent.seasonId, {
+            agentId: agent.id,
+            archetypeId: agent.archetypeId,
+            canonName: agent.canonName,
+            kind: 'output',
+            text: output,
+            meta: { sessionId: session_id },
+          });
+        }
+      }
     }
 
     sendJson({ success: true });
@@ -81,6 +108,32 @@ export function registerHooksRoutes(app: RouteApp, ctx: RouteContext): void {
         waitingReason: waiting_reason,
       });
       scheduleTick();
+
+      // 17b — season comms log: capture status transitions for season agents.
+      // This is the SOLE status-capture point (ipc-handlers does not log) to
+      // avoid duplicate entries.
+      if (agent.seasonId) {
+        const label =
+          agent.status === 'waiting'
+            ? waiting_reason
+              ? `waiting: ${waiting_reason}`
+              : 'waiting'
+            : agent.status === 'running'
+              ? '→ running'
+              : agent.status;
+        appendConversationEntry(agent.seasonId, {
+          agentId: agent.id,
+          archetypeId: agent.archetypeId,
+          canonName: agent.canonName,
+          kind: 'status',
+          text: label,
+          meta: {
+            status: agent.status,
+            waitingReason: waiting_reason,
+            currentTask: current_task,
+          },
+        });
+      }
     }
 
     sendJson({ success: true, agent: { id: agent.id, status: agent.status } });

@@ -61,6 +61,28 @@ export interface KanbanTaskElectron {
   epicColor?: string;
 }
 
+// Season conversation / crosstalk log (17b).
+export type ConversationKind = 'output' | 'status' | 'delegation' | 'system';
+
+export interface ConversationEntry {
+  id: string;
+  ts: string;
+  seasonId: string;
+  agentId: string;
+  archetypeId?: string;
+  canonName?: string;
+  kind: ConversationKind;
+  text: string;
+  meta?: {
+    status?: string;
+    waitingReason?: string;
+    currentTask?: string;
+    fromAgentId?: string;
+    fromName?: string;
+    sessionId?: string;
+  };
+}
+
 export interface VaultDocumentElectron {
   id: string;
   title: string;
@@ -841,6 +863,14 @@ export interface ElectronAPI {
   // The full surface is consumed elsewhere via a loose `any` cast.
   season?: {
     list: () => Promise<{ seasons: Array<{ id: string; name: string }>; error?: string }>;
+    // Conversation / crosstalk log (17b).
+    conversation?: {
+      list: (
+        seasonId: string,
+        opts?: { kind?: ConversationKind; agentId?: string; limit?: number; sinceTs?: string },
+      ) => Promise<{ entries: ConversationEntry[]; error?: string }>;
+      onAppended: (callback: (entry: ConversationEntry) => void) => () => void;
+    };
     [key: string]: unknown;
   };
 

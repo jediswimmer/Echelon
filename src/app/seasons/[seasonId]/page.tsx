@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { ArrowLeft, Users, Shield, Settings, Archive, RotateCcw, MessagesSquare, KanbanSquare, Github, GitBranch, FolderGit2, FolderSearch, FileText, Loader2, Search, ScanSearch, CheckCircle2, AlertTriangle } from 'lucide-react';
 import ThemeBadge from '@/components/Echelon/ThemeBadge';
 import KanbanBoard from '@/components/KanbanBoard';
+import ConversationLogTab from './ConversationLogTab';
 import Link from 'next/link';
 
 interface SeasonSourceControl {
@@ -288,7 +289,9 @@ export default function SeasonDetailPage() {
       {/* Tab content */}
       <div className="flex-1 min-h-0 overflow-y-auto pb-4">
         {activeTab === 'cast' && <CastTab season={season} />}
-        {activeTab === 'conversation' && <ConversationLogTab />}
+        {activeTab === 'conversation' && (
+          <ConversationLogTab seasonId={season.id} characterIds={season.characterIds} />
+        )}
         {activeTab === 'tickets' && <TicketsTab season={season} />}
         {activeTab === 'gates' && <GatesTab season={season} />}
         {activeTab === 'settings' && <SettingsTab season={season} />}
@@ -599,17 +602,7 @@ function CastTab({ season }: { season: Season }) {
   );
 }
 
-/* ─── Conversation Log Tab (next build placeholder) ──────────── */
-
-function ConversationLogTab() {
-  return (
-    <div className="flex flex-col items-center justify-center h-48 text-muted-foreground">
-      <MessagesSquare className="w-8 h-8 mb-2 opacity-50" />
-      <p className="text-sm">Conversation log</p>
-      <p className="text-xs mt-1">Agent crosstalk + convener coordination stream lands in the next build</p>
-    </div>
-  );
-}
+/* ─── Conversation Log Tab — see ./ConversationLogTab.tsx (17b) ─── */
 
 /* ─── Tickets Tab (season-scoped kanban board) ───────────────── */
 

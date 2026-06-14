@@ -8,6 +8,7 @@ import { ptyProcesses, writeProgrammaticInput } from '../../core/pty-manager';
 import { buildFullPath } from '../../utils/path-builder';
 import { AgentStatus, AgentCharacter } from '../../types';
 import { RouteApp, RouteContext } from './types';
+import { appendConversationEntry } from '../../core/conversation-log';
 
 export function registerAgentRoutes(app_: RouteApp, ctx: RouteContext): void {
   // GET /api/agents/:id/wait — long-poll until agent status changes
@@ -298,10 +299,33 @@ export function registerAgentRoutes(app_: RouteApp, ctx: RouteContext): void {
       return;
     }
 
-    const { message } = req.body as { message: string };
+    const { message, from, fromAgentId } = req.body as {
+      message: string;
+      from?: string;
+      fromAgentId?: string;
+    };
     if (!message) {
       sendJson({ error: 'message is required' }, 400);
       return;
+    }
+
+    // 17b — season comms log: capture inter-agent delegations (crosstalk).
+    // The recipient is `:id`; the sender is best-effort from the request body
+    // (`fromAgentId`/`from`), if the caller supplied it. Season-scoped only.
+    if (agent.seasonId) {
+      const senderId = fromAgentId || from;
+      const senderAgent = senderId ? agents.get(senderId) : undefined;
+      appendConversationEntry(agent.seasonId, {
+        agentId: agent.id,
+        archetypeId: agent.archetypeId,
+        canonName: agent.canonName,
+        kind: 'delegation',
+        text: message,
+        meta: {
+          fromAgentId: senderId,
+          fromName: senderAgent?.canonName || senderAgent?.name,
+        },
+      });
     }
 
     if (!agent.ptyId || !ptyProcesses.has(agent.ptyId)) {

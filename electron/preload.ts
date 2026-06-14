@@ -758,6 +758,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.on('season:updated', listener);
       return () => ipcRenderer.removeListener('season:updated', listener);
     },
+    // Conversation / crosstalk log (17b).
+    conversation: {
+      list: (
+        seasonId: string,
+        opts?: { kind?: string; agentId?: string; limit?: number; sinceTs?: string },
+      ) => ipcRenderer.invoke('season:conversation:list', seasonId, opts),
+      onAppended: (cb: (entry: any) => void) => {
+        const listener = (_: unknown, entry: any) => cb(entry);
+        ipcRenderer.on('season:conversation:appended', listener);
+        return () => ipcRenderer.removeListener('season:conversation:appended', listener);
+      },
+    },
   },
 
   // Counselor (multi-model consensus)
