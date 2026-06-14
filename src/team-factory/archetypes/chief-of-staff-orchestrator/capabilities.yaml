@@ -1,0 +1,25 @@
+required_capabilities:
+  - inter-agent-protocol:admin   # owns comms-bus dispatch + delegation routing across all teams (the orchestrator's defining scope)
+  - delegation:write             # routes work and CEO directives to the correct executive / archetype
+  - monitoring:read              # reads control-plane health, scheduler state, and usage-window status
+  - monitoring:write             # records control-plane health, dispatch outcomes, and routing decisions
+  - quality-gate:override        # NON-security gates ONLY; clears a gate jamming the cross-team pipeline, after due process
+  - counselor-invocation:execute # routes a deadlock to the Counselor when no executive owns it (escalation routing)
+  - knowledge-retrieval:read     # reads prior routing/escalation decisions and operational patterns before acting
+  - knowledge-capture:write      # persists routing decisions, escalation outcomes, and operational learnings
+
+forbidden_capabilities:
+  - source-control:read          # the orchestrator does not read or touch the codebase
+  - source-control:write         # never writes code or commits
+  - source-control:admin         # merge authority belongs to the user-handler, never the orchestrator
+  - deployment:read              # platform-sre operates and observes; the orchestrator dispatches, it does not deploy
+  - deployment:write             # never deploys to any environment
+  - quality-gate:approve         # the orchestrator routes review work; it never approves a gate
+  - capability-grant             # granting scopes is a CEO/control-plane policy function logged to audit, not an orchestration verb
+
+# Note: the orchestrator holds quality-gate:override deliberately (see agent.config.yaml). It is
+# used ONLY to clear a stuck NON-security gate that is jamming the cross-team merge/escalation
+# pipeline operationally, after consulting the gate owner and recording rationale. A security or
+# privacy rejection is NEVER overridable by the orchestrator; it routes to the CISO and, on
+# deadlock, to the Counselor. This carve-out is enforced as a guardrail, not as a finer-grained
+# scope verb, because the vocabulary has no sub-security grain.

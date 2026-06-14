@@ -1,0 +1,35 @@
+required_capabilities:
+  # Least-privilege RBAC scopes drawn from access-matrix.yaml plus the role-appropriate
+  # business scopes the foundation design defines (marketing:{read,write}). The
+  # content-marketer drafts and schedules the public cadence, reads engagement signal,
+  # governs the content/social calendar, and captures what landed. He does NOT set
+  # positioning, design experiments, route engineering work, touch source control,
+  # merge, deploy, override a gate, or approve spend. The calendar and the post stream
+  # are his board; the codebase, the roadmap, and the budget are not.
+  - knowledge-retrieval:read    # queries prior posts, angles, engagement history, and brand-voice precedents
+  - knowledge-capture:write     # persists every content artifact, its angle, and its result + the learning
+  - monitoring:read             # reads the engagement/reach signal he writes against: impressions, engagement, clicks, follows per post/channel
+  - file-ops:write              # writes post drafts, threads, long-form pieces, and the content calendar definition
+  - kanban:write                # owns the content / social board: draft queue, scheduled posts, calendar slots, repurpose backlog
+  - marketing:read              # reads marketing/growth state across the marketing-growth org (positioning, launch briefs, cadence, experiment results)
+  - marketing:write             # authors and schedules market-facing content within the CMO's positioning and the growth-marketer's plan
+
+forbidden_capabilities:
+  # The content-marketer never sets positioning, never designs the experiment, never
+  # touches source control, never deploys, never routes engineering work, never
+  # overrides a gate, never approves spend, and never grants a capability. Content
+  # judgment stays honest by staying out of the build-and-ship path and the
+  # narrative-and-budget decisions above him. He writes and times the message; he
+  # does not decide the message strategy, build the product, or fund the channel.
+  - capability-grant            # cannot widen his own or anyone's scopes (archetype-forbidden, audited)
+  - source-control:read         # he owns the post stream, not the codebase
+  - source-control:write
+  - source-control:admin        # merge authority belongs solely to the user-handler
+  - deployment:read
+  - deployment:write            # he announces, he does not ship; rollout goes through engineers / devops
+  - quality-gate:approve        # he does not own an engineering review gate
+  - quality-gate:override       # may never override a gate verdict, content deadline notwithstanding
+  - delegation:write            # he receives content work from the growth-marketer / CMO; he does not delegate work out
+  - inter-agent-protocol:admin  # engineering routing is the coordinator's
+  - budget:approve              # channel and campaign spend is the CMO's within the CFO envelope; content escalates spend asks
+  - counselor-invocation:execute # only the merge authority / CEO convenes a binding Counselor

@@ -1,0 +1,32 @@
+required_capabilities:
+  # Least-privilege RBAC scopes. The BDR is strictly TOP-OF-FUNNEL: it reads public
+  # market intelligence and the company's own pipeline, and it WRITES only the
+  # market map, the warm pipeline, and its qualified handoffs (via knowledge-capture
+  # + the crm/prospecting skills). It holds NO authority to stage or close the
+  # pipeline (sales:write belongs to the account executive + CRO), commits nothing,
+  # and holds no build/merge/deploy/grant scope of any kind.
+  - knowledge-retrieval:read    # reads prior outreach, partnership history, the motion, and ecosystem intel
+  - knowledge-capture:write     # persists the market map, qualified leads, handoff packages + rationale, outreach lessons
+  - sales:read                  # reads the pipeline + account state to qualify against the motion and avoid duplicating an AE's live deal (READ ONLY)
+  - marketing:read              # reads demand + community signals from marketing/growth to prospect into warm audiences (READ ONLY)
+
+forbidden_capabilities:
+  # The BDR opens doors; it never closes them, never commits the company, never
+  # touches the codebase, and never grants a capability. Its value is the qualified,
+  # story-rich, warm top of the funnel, and its judgment stays clean by staying out
+  # of the commit-and-build path.
+  - sales:write                 # feeds the funnel; staging/closing the pipeline is the account executive's + CRO's
+  - marketing:write             # coordinates with marketing, never publishes content
+  - budget:approve              # commits nothing; commercial commitment is the CRO's inside the CFO envelope
+  - delegation:write            # hands opportunities up to the AE; never tasks agents
+  - delegation:read             # reads the pipeline + market, not the engineering delegation tracker
+  - source-control:read         # never reads the codebase
+  - source-control:write        # never writes code
+  - source-control:admin        # merge authority belongs to the user-handler
+  - deployment:read             # not the BDR's concern; keeps blast radius minimal
+  - deployment:write            # never deploys
+  - quality-gate:approve        # engineering review gates are not the BDR's
+  - quality-gate:override       # never overrides a gate
+  - counselor-invocation:execute # never convenes the Counselor; escalates to the AE / CRO
+  - inter-agent-protocol:admin  # routing admin is the orchestrator's; the BDR neither routes nor tasks agents
+  - capability-grant            # granting scopes is a control-plane function, logged to audit_log

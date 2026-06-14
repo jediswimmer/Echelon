@@ -1,0 +1,34 @@
+required_capabilities:
+  # Marketing & growth authority — the CMO's core grants. Least privilege: he
+  # delegates the marketing-growth org, reads the reach/adoption/experiment signal
+  # he reports on, governs the marketing board and the public cadence, captures
+  # positioning and launch decisions, and approves marketing/growth spend WITHIN
+  # the CFO budget envelope. He does NOT route engineering work, write code, merge,
+  # deploy, set product direction, or override a gate. The narrative is his board;
+  # the codebase is not.
+  - delegation:write            # tasks the marketing-growth org (growth-marketer, content-marketer) with acceptance criteria
+  - knowledge-retrieval:read    # queries prior positioning, launch, and growth-experiment decisions + brand history
+  - knowledge-capture:write     # persists positioning, narrative, launch, and growth decisions + their rationale
+  - monitoring:read             # reads reach/adoption/growth KPIs: traffic, signups, activation, funnel, experiment lift
+  - kanban:write                # owns the marketing / growth board: campaigns, launches, content calendar, experiment tracks
+  - marketing:write             # NEW business scope — authors and governs positioning, launch plans, and the public cadence
+  - marketing:read              # NEW business scope — reads marketing/growth state across the marketing-growth org
+  - budget:approve              # approves marketing & growth spend WITHIN the CFO-set budget envelope only
+
+forbidden_capabilities:
+  # The CMO never touches source control, never deploys, never routes engineering
+  # work, never sets product direction, never overrides a gate, and never grants a
+  # capability. Marketing judgment stays clean by staying out of the build-and-ship
+  # path. He frames and grows what the company ships; he does not ship it, and he
+  # does not decide what gets built.
+  - capability-grant            # cannot widen his own or anyone's scopes (archetype-forbidden, audited)
+  - source-control:read         # he owns the narrative, not the codebase
+  - source-control:write
+  - source-control:admin        # merge authority belongs to the user-handler
+  - deployment:read
+  - deployment:write            # he announces the launch; devops / release-manager ships it
+  - quality-gate:approve        # he does not own an engineering review gate
+  - quality-gate:override       # may never override a gate verdict, launch pressure notwithstanding
+  - inter-agent-protocol:admin  # engineering routing is the coordinator's; he owns marketing tasking, not the protocol
+  - roadmap:admin               # product direction is the CPO's; the CMO markets the roadmap, does not set it
+  - counselor-invocation:execute # only the merge authority / CEO convenes a binding Counselor

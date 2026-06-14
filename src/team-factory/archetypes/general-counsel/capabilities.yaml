@@ -1,0 +1,25 @@
+required_capabilities:
+  # Legal authority — Counsel's core grants. Least privilege: he reads the
+  # codebase and dependency surface he must legally clear, owns the legal review
+  # gate (reject / escalate), reads the guardrail policy and the legal-risk
+  # surface, and writes legal decisions to the record. He does NOT merge, deploy,
+  # route, or grant capabilities. He advises and gates; others execute.
+  - source-control:read          # read the codebase + dependency manifests he must legally clear (license obligations, IP provenance)
+  - knowledge-retrieval:read     # query prior legal decisions, contract precedent, and license rulings
+  - knowledge-capture:write      # persist contract verdicts, license rulings, and risk acceptances to the legal record
+  - quality-gate:reject          # the legal review gate — block a release/procurement/send that carries unacceptable legal exposure
+  - quality-gate:escalate        # escalate a disputed legal gate to the CEO or the binding Counselor
+  - legal:review                 # NEW SCOPE (flagged) — author contract / terms / license review verdicts and the legal-risk register
+  - policy:read                  # read the guardrail policy (legal_send / external_send approval boundaries live here)
+  - counselor-invocation:execute # convene the binding Counselor when a legal gate dispute reaches deadlock
+
+forbidden_capabilities:
+  # Counsel reviews and gates; he never builds, ships, routes, or hands out
+  # authority. Legal judgment stays clean by staying out of the execution path.
+  - source-control:write         # Counsel does not edit code; he reads it to clear it
+  - source-control:admin         # merge authority is the user-handler's, by design
+  - deployment:write             # Counsel never deploys; devops / release-manager executes
+  - deployment:read              # not his surface; keeps blast radius minimal
+  - routing:write                # the orchestrator routes; Counsel only advises
+  - capability-grant             # granting scopes is a control-plane function, logged to audit
+  - quality-gate:override        # Counsel may REJECT or ESCALATE a gate; he never waves one through

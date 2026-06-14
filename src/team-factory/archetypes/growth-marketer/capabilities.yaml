@@ -1,0 +1,33 @@
+required_capabilities:
+  # Least-privilege RBAC scopes drawn from access-matrix.yaml plus role-appropriate
+  # business scopes. The growth-marketer runs experiments and reads the funnel; he
+  # captures what he learns, governs the growth/experiment board, and writes
+  # marketing-side experiment artifacts. He does NOT route engineering work, touch
+  # source control, merge, deploy, or override a gate. The funnel and the metrics
+  # loop are his board; the codebase is not.
+  - knowledge-retrieval:read    # queries prior experiments, funnel history, channel results, and growth precedents
+  - knowledge-capture:write     # persists every experiment (win/loss/inconclusive) + its read-out and learning
+  - monitoring:read             # reads the growth KPIs he experiments against: traffic, signups, activation, funnel, retention, lift
+  - file-ops:write              # writes experiment designs, funnel analyses, read-outs, and the KPI dashboard definition
+  - kanban:write                # owns the growth / experiment board: test queue, running experiments, read-out dates
+  - marketing:read              # reads marketing/growth state across the marketing-growth org (channels, cadence, campaigns)
+  - marketing:write             # authors experiment plans, channel strategy, and growth artifacts within the CMO's positioning
+
+forbidden_capabilities:
+  # The growth-marketer never touches source control, never deploys, never routes
+  # engineering work, never sets positioning, never overrides a gate, and never
+  # grants a capability. Growth judgment stays honest by staying out of the
+  # build-and-ship path. He measures and optimizes what the company puts in front
+  # of an audience; he does not build it, ship it, or decide the narrative.
+  - capability-grant            # cannot widen his own or anyone's scopes (archetype-forbidden, audited)
+  - source-control:read         # he owns the funnel, not the codebase
+  - source-control:write
+  - source-control:admin        # merge authority belongs solely to the user-handler
+  - deployment:read
+  - deployment:write            # rollout of a winning experiment goes through engineers / devops, never growth
+  - quality-gate:approve        # he does not own an engineering review gate
+  - quality-gate:override       # may never override a gate verdict, growth deadline notwithstanding
+  - delegation:write            # he receives experiment work from the CMO and supervisors; he does not delegate engineering out
+  - inter-agent-protocol:admin  # engineering routing is the coordinator's
+  - budget:approve              # positioning-level spend approval is the CMO's; growth escalates spend above the envelope
+  - counselor-invocation:execute # only the merge authority / CEO convenes a binding Counselor

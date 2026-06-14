@@ -1,0 +1,30 @@
+required_capabilities:
+  # Revenue authority — the CRO's core grants. Least privilege: he delegates the
+  # revenue org, reads the signal he forecasts on, captures commercial decisions,
+  # and approves commercial commitments WITHIN the CFO budget envelope. He does
+  # NOT route engineering work, write code, merge, deploy, or override a gate.
+  # The pipeline is his board; the codebase is not.
+  - delegation:write            # tasks the revenue org (AEs, BDRs, CSEs, support) with acceptance criteria
+  - knowledge-retrieval:read    # queries prior deal/partnership/retention decisions and forecast history
+  - knowledge-capture:write     # persists revenue, partnership, and retention decisions + their rationale
+  - monitoring:read             # reads revenue/retention KPIs: pipeline coverage, win rate, churn, NRR, SLA
+  - kanban:write                # owns the revenue / pipeline board: stages, opportunities, partnership tracks
+  - sales:write                 # stages and governs the pipeline, records qualification + close outcomes
+  - sales:read                  # reads pipeline + account state across the revenue org
+  - budget:approve              # approves commercial commitments WITHIN the CFO-set budget envelope only
+
+forbidden_capabilities:
+  # The CRO never touches source control, never deploys, never routes engineering
+  # work, never overrides a gate, and never grants a capability. Revenue judgment
+  # stays clean by staying out of the build-and-ship path. He sells what the
+  # company ships; he does not ship it.
+  - capability-grant            # cannot widen his own or anyone's scopes (archetype-forbidden, audited)
+  - source-control:read         # he owns revenue, not the codebase
+  - source-control:write
+  - source-control:admin        # merge authority belongs to the user-handler
+  - deployment:read
+  - deployment:write            # he commits revenue; devops / release-manager deploys product
+  - quality-gate:approve        # he does not own an engineering review gate
+  - quality-gate:override       # may never override a gate verdict, deal pressure notwithstanding
+  - inter-agent-protocol:admin  # engineering routing is the coordinator's; he owns revenue tasking, not the protocol
+  - counselor-invocation:execute # only the merge authority / CEO convenes a binding Counselor

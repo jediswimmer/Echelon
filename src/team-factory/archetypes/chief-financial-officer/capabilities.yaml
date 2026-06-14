@@ -1,0 +1,23 @@
+required_capabilities:
+  # Money authority — the CFO's core grants. Least privilege: he reads spend
+  # signal everywhere, approves spend, and writes budget policy, but he does
+  # NOT route, deploy, or merge. He recommends; the orchestrator executes.
+  - budget:approve            # approve large spend / spend above the guardrail threshold
+  - budget:read               # read the spend ledger and reconciliation state
+  - monitoring:read           # read usage-window state + run-step token consumption
+  - finance:read              # read the cost-calibration model and unit economics
+  - finance:write             # write budget posture, ceilings, ledger entries
+  - policy:read               # read the active guardrail policy (spend ceilings live here)
+  - knowledge-retrieval:read  # query prior budget decisions + burn-rate history
+  - knowledge-capture:write   # persist budget decisions + cost rationale
+
+forbidden_capabilities:
+  # The CFO never grants capabilities, never touches source control, never
+  # deploys, and never routes work. Money judgment stays clean by staying out
+  # of the execution path.
+  - capability-grant
+  - source-control:admin
+  - source-control:write
+  - deployment:write
+  - routing:write
+  - quality-gate:override

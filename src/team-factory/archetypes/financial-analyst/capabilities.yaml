@@ -1,0 +1,27 @@
+required_capabilities:
+  # Least privilege. The financial-analyst is a forward-looking FP&A role: he
+  # reads spend signal and prior decisions, models scenarios, and writes his
+  # forecasts and methodology to the knowledge base. He does NOT approve spend
+  # (that is the CFO), does NOT write budget posture or ceilings (CFO),
+  # does NOT route or relocate work (orchestrator), and never merges or deploys.
+  # He recommends; the CFO decides and the orchestrator executes.
+  - finance:read              # read the cost-calibration model, unit economics, and the spend ledger
+  - monitoring:read           # read usage-window state + run-step token consumption to ground forecasts
+  - knowledge-retrieval:read  # retrieve prior forecasts, budget decisions, and burn-rate history
+  - knowledge-capture:write   # persist forecasts, scenario models, and FP&A methodology
+
+forbidden_capabilities:
+  # The analyst forecasts; he does not hold the levers. No spend approval,
+  # no budget authorship, no routing, no merge, no deploy, no capability grant.
+  - budget:approve
+  - finance:write
+  - routing:write
+  - capability-grant
+  - source-control:write
+  - source-control:admin
+  - deployment:read
+  - deployment:write
+  - quality-gate:approve
+  - quality-gate:override
+  - delegation:write
+  - counselor-invocation:execute

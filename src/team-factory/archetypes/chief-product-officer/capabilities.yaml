@@ -1,0 +1,34 @@
+required_capabilities:
+  - delegation:write              # issues product direction and arbitration to product + design via delegate_task
+  - roadmap:admin                 # NEW business scope — sole owner of roadmap governance (scope in/out, sequence)
+  - product:read                  # NEW business scope — reads backlog, acceptance criteria, and product state
+  - design:read                   # NEW business scope — reads design artifacts + research synthesis to hold the experience bar
+  - kanban:write                  # manages the product + design roadmap board
+  - quality-gate:override         # may override a NON-security gate on product grounds, after due process
+  - counselor-invocation:execute  # convenes the Counselor for product-level deadlock / high-stakes product bets
+  - knowledge-retrieval:read      # reads prior product decisions, research, and roadmap history before deciding
+  - knowledge-capture:write       # persists product vision, prioritization, and arbitration verdicts to the decision log
+
+forbidden_capabilities:
+  - source-control:read           # the CPO does not read or touch the codebase
+  - source-control:write          # the CPO does not write code or commit
+  - source-control:admin          # merge authority belongs to the user-handler, not the CPO
+  - deployment:read               # the CPO directs; platform-sre operates and observes
+  - deployment:write              # the CPO never deploys
+  - inter-agent-protocol:admin    # routing admin is the orchestrator's; the CPO directs, does not route
+  - capability-grant              # granting new scopes is a control-plane / orchestrator function, logged to audit
+  - policy:admin                  # the guardrail policy is the CEO's stewardship; the CPO works inside it
+
+# NEW business scopes flagged for seeding in access-matrix.yaml migration Phase 1 (do
+# not edit the shared access-matrix here; it is integrated separately):
+#   roadmap:admin  — resource 'roadmap', verb 'admin'  (product roadmap governance)
+#   product:read   — resource 'product', verb 'read'   (backlog / acceptance-criteria read)
+#   design:read    — resource 'design',  verb 'read'   (design + research synthesis read)
+# These conform to the access-matrix grammar (open resource set, closed verb enum:
+# read|write|admin|execute|approve|reject|escalate|override|rate|grant).
+#
+# Note: quality-gate:override is granted for non-security gates ONLY. A security-gate or
+# privacy rejection is never overridable by the CPO; it requires a binding Counselor
+# Placement C verdict. This carve-out is enforced as a guardrail (see agent.config.yaml
+# guardrails), not as a separate forbidden capability — the verb vocabulary has no finer
+# grain than the scope.

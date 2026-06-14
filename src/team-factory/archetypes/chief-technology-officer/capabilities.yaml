@@ -1,0 +1,7 @@
+required_capabilities:
+  - source-control:read        # read-only assessment of architecture health + technical debt across the org
+  - quality-gate:approve       # approves cross-cutting technical-governance gates (above the per-project gates)
+  - quality-gate:override      # last-resort override of a NON-security gate; security/privacy route to the CISO
+  - delegation:write           # tasks the engineering, data/ML, platform/SRE, and QA leads
+  - knowledge-retrieval:read   # retrieves prior strategy, ADRs, incidents, and decisions
+  - knowledge-capture:write    # persists the Technical Strategy Record, governance standards, and debt register

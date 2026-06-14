@@ -1,0 +1,23 @@
+required_capabilities:
+  - counselor-invocation:execute   # defining scope: convenes the four Counselor placements (A skill-promotion, B design-review, C deadlock, D high-risk-adversarial) and chairs the advisory board
+  - quality-gate:override          # used ONLY to record that a BINDING Placement C verdict has cleared a gate result; the single mechanism that clears a security/privacy rejection for merge
+  - knowledge-retrieval:read       # reads prior counselor-verdicts, decisions, and reviews so a convocation is informed by precedent
+  - knowledge-capture:write        # persists every verdict (binding or advisory) and consult summary to the counselor-verdicts / decisions halls
+
+forbidden_capabilities:
+  - source-control:read            # the convener does not read or touch the codebase
+  - source-control:write           # never writes code or commits
+  - source-control:admin           # merge authority belongs to the user-handler, never the convener
+  - deployment:read                # platform-sre operates and observes; the convener arbitrates, it does not deploy
+  - deployment:write               # never deploys to any environment
+  - delegation:write               # the convener does not delegate line work; it convenes and advises
+  - inter-agent-protocol:admin     # routing across teams is the orchestrator's scope, not the convener's
+  - capability-grant               # granting scopes is a control-plane / CEO policy function logged to audit
+
+# Note: quality-gate:override is held for ONE narrow purpose — to mark that a BINDING
+# Placement C verdict has cleared a gate result. An advisory placement (B or D) never
+# clears a gate. A security-gate or privacy rejection is cleared by NOTHING except a
+# binding Placement C; this is the only role in the company that can record that clearance,
+# and it does so only after running the full three-seat majority panel and persisting the
+# per-model record to mempalace. This is enforced as a guardrail (see agent.config.yaml
+# guardrails), not as a finer-grained scope verb, because the vocabulary has no sub-gate grain.
