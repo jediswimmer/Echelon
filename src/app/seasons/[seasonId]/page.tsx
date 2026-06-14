@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { ArrowLeft, Users, Shield, Settings, Archive, RotateCcw, MessagesSquare, KanbanSquare, Github, GitBranch, FolderGit2, FolderSearch, FileText, Loader2, Search, ScanSearch, CheckCircle2, AlertTriangle, Compass, UserCog, Bot } from 'lucide-react';
+import { ArrowLeft, Users, Shield, Settings, Archive, RotateCcw, MessagesSquare, KanbanSquare, Github, GitBranch, FolderGit2, FolderSearch, FileText, Loader2, Search, ScanSearch, CheckCircle2, AlertTriangle, Compass, UserCog, Bot, Calendar, Clock, Video, Plus, Trash2, Pencil, CalendarPlus, X } from 'lucide-react';
 import ThemeBadge from '@/components/Echelon/ThemeBadge';
 import KanbanBoard from '@/components/KanbanBoard';
 import ConversationLogTab from './ConversationLogTab';
@@ -27,6 +27,24 @@ interface HumanSeat {
   source: 'github' | 'jira' | 'manual';
   handle: string;
   displayName?: string;
+}
+
+type CeremonyKind = 'standup' | 'grooming' | 'sprint-end' | 'team-meeting' | 'custom';
+type CeremonyCadence = 'daily' | 'weekly' | 'biweekly' | 'once';
+
+/** One configured ceremony on a season's calendar (#22b). */
+interface SeasonCeremony {
+  id: string;
+  kind: CeremonyKind;
+  title: string;
+  cadence: CeremonyCadence;
+  dayOfWeek?: number;
+  time?: string;
+  startDate?: string;
+  durationMins?: number;
+  meetingLink?: string;
+  notes?: string;
+  createdAt: string;
 }
 
 interface SeasonDirectionOption {
@@ -69,6 +87,8 @@ interface Season {
   mode?: SeasonMode;
   /** Human hybrid dev team (#22a) — populated in collaborative mode. */
   humanTeam?: { seats: HumanSeat[] };
+  /** Ceremony calendar (#22b) — standups/grooming/reviews/meetings. */
+  ceremonies?: SeasonCeremony[];
 }
 
 /** Chip metadata for the brownfield context-bootstrap status. */
@@ -569,7 +589,10 @@ function SeasonModeCard({ season }: { season: Season }) {
           Fully-autonomous scheduling (usage windows + cron) lands with #18.
         </p>
       ) : (
-        <HumanTeamPanel season={season} />
+        <>
+          <HumanTeamPanel season={season} />
+          <CeremoniesPanel season={season} />
+        </>
       )}
     </div>
   );
@@ -849,6 +872,545 @@ function makeId(): string {
     return crypto.randomUUID();
   }
   return `seat-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+/* ─── Ceremony calendar (#22b) ───────────────────────────────── */
+
+const CEREMONY_KIND_LABEL: Record<CeremonyKind, string> = {
+  standup: 'Standup',
+  grooming: 'Grooming',
+  'sprint-end': 'Sprint review',
+  'team-meeting': 'Team meeting',
+  custom: 'Custom',
+};
+
+const CADENCE_LABEL: Record<CeremonyCadence, string> = {
+  daily: 'Daily',
+  weekly: 'Weekly',
+  biweekly: 'Biweekly',
+  once: 'Once',
+};
+
+const DOW_LABEL = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+/**
+ * Compute the next datetime (as a Date) for a ceremony, from `from` (defaults to
+ * now). Pure + robust to missing fields — returns null when not computable.
+ *   • daily             → today at `time` if still ahead, else tomorrow.
+ *   • weekly/biweekly   → the next matching `dayOfWeek` at `time` (biweekly is
+ *     anchored on `startDate` so it lands on an even number of weeks from it).
+ *   • once              → `startDate` (+ `time`).
+ */
+function nextOccurrence(c: SeasonCeremony, from: Date = new Date()): Date | null {
+  // Parse 'HH:MM' → [h, m]; default to 09:00 when absent/invalid.
+  const parseTime = (t?: string): [number, number] => {
+    if (t && /^([01]\d|2[0-3]):[0-5]\d$/.test(t)) {
+      const [h, m] = t.split(':').map(Number);
+      return [h, m];
+    }
+    return [9, 0];
+  };
+  const [hh, mm] = parseTime(c.time);
+
+  if (c.cadence === 'once') {
+    if (!c.startDate || !/^\d{4}-\d{2}-\d{2}$/.test(c.startDate)) return null;
+    const [y, mo, d] = c.startDate.split('-').map(Number);
+    const dt = new Date(y, mo - 1, d, hh, mm, 0, 0);
+    // A one-off whose datetime has passed is no longer "next" — don't surface a
+    // stale agenda row or generate a past Google Calendar event.
+    return dt.getTime() > from.getTime() ? dt : null;
+  }
+
+  if (c.cadence === 'daily') {
+    const candidate = new Date(from.getFullYear(), from.getMonth(), from.getDate(), hh, mm, 0, 0);
+    if (candidate.getTime() <= from.getTime()) candidate.setDate(candidate.getDate() + 1);
+    return candidate;
+  }
+
+  // weekly / biweekly need a target day-of-week.
+  if (typeof c.dayOfWeek !== 'number' || c.dayOfWeek < 0 || c.dayOfWeek > 6) return null;
+  const target = c.dayOfWeek;
+
+  // Find the next date on/after `from` whose weekday === target and time is ahead.
+  const candidate = new Date(from.getFullYear(), from.getMonth(), from.getDate(), hh, mm, 0, 0);
+  let deltaDays = (target - candidate.getDay() + 7) % 7;
+  if (deltaDays === 0 && candidate.getTime() <= from.getTime()) deltaDays = 7;
+  candidate.setDate(candidate.getDate() + deltaDays);
+
+  if (c.cadence === 'biweekly' && c.startDate && /^\d{4}-\d{2}-\d{2}$/.test(c.startDate)) {
+    // Anchor on startDate: if the candidate falls an ODD number of weeks after the
+    // anchor, push it one more week so it stays on the 2-week rhythm. Count whole
+    // calendar days (date-only) so a DST hour-shift can't skew the week parity.
+    const [ay, amo, ad] = c.startDate.split('-').map(Number);
+    const MS_DAY = 24 * 60 * 60 * 1000;
+    const anchorEpoch = new Date(ay, amo - 1, ad).getTime();
+    const candEpoch = new Date(candidate.getFullYear(), candidate.getMonth(), candidate.getDate()).getTime();
+    const weeksDiff = Math.floor(Math.round((candEpoch - anchorEpoch) / MS_DAY) / 7);
+    if (weeksDiff % 2 !== 0) candidate.setDate(candidate.getDate() + 7);
+  }
+
+  return candidate;
+}
+
+/** Human-readable cadence/day/time, e.g. "Weekly · Mon · 09:30". */
+function describeSchedule(c: SeasonCeremony): string {
+  const parts: string[] = [CADENCE_LABEL[c.cadence]];
+  if ((c.cadence === 'weekly' || c.cadence === 'biweekly') && typeof c.dayOfWeek === 'number') {
+    parts.push(DOW_LABEL[c.dayOfWeek] ?? '');
+  }
+  if (c.cadence === 'once' && c.startDate) parts.push(c.startDate);
+  if (c.time) parts.push(c.time);
+  return parts.filter(Boolean).join(' · ');
+}
+
+/** Format a Date as e.g. "Mon Jun 16, 09:30" for the agenda. */
+function formatOccurrence(d: Date): string {
+  const date = d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+  const time = d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+  return `${date}, ${time}`;
+}
+
+/** Pad a number to 2 digits for the YYYYMMDDTHHMMSS Google Calendar format. */
+function pad2(n: number): string {
+  return String(n).padStart(2, '0');
+}
+
+/** Local Date → Google Calendar floating-time stamp `YYYYMMDDTHHMMSS`. */
+function gcalStamp(d: Date): string {
+  return (
+    `${d.getFullYear()}${pad2(d.getMonth() + 1)}${pad2(d.getDate())}` +
+    `T${pad2(d.getHours())}${pad2(d.getMinutes())}${pad2(d.getSeconds())}`
+  );
+}
+
+/**
+ * Build a no-auth "Add to Google Calendar" event-template URL for a ceremony's
+ * next occurrence (no OAuth, no connector). Returns null when there's no
+ * computable occurrence. The `dates` use local floating time so Google shows the
+ * time as entered.
+ */
+function googleCalendarUrl(c: SeasonCeremony): string | null {
+  const start = nextOccurrence(c);
+  if (!start) return null;
+  const durationMins = typeof c.durationMins === 'number' && c.durationMins > 0 ? c.durationMins : 30;
+  const end = new Date(start.getTime() + durationMins * 60 * 1000);
+
+  const detailsParts: string[] = [];
+  if (c.notes) detailsParts.push(c.notes);
+  if (c.meetingLink) detailsParts.push(`Join: ${c.meetingLink}`);
+
+  const params = new URLSearchParams({
+    action: 'TEMPLATE',
+    text: c.title,
+    dates: `${gcalStamp(start)}/${gcalStamp(end)}`,
+  });
+  if (detailsParts.length) params.set('details', detailsParts.join('\n\n'));
+  if (c.meetingLink) params.set('location', c.meetingLink);
+
+  return `https://calendar.google.com/calendar/render?${params.toString()}`;
+}
+
+/** The kind icon for a ceremony row. */
+function ceremonyIcon(kind: CeremonyKind): typeof Calendar {
+  switch (kind) {
+    case 'standup': return Clock;
+    case 'grooming': return KanbanSquare;
+    case 'sprint-end': return CheckCircle2;
+    case 'team-meeting': return Users;
+    default: return Calendar;
+  }
+}
+
+/** A blank draft for the add form. */
+function emptyCeremonyDraft(): SeasonCeremonyDraft {
+  return {
+    kind: 'standup',
+    title: '',
+    cadence: 'daily',
+    dayOfWeek: 1,
+    time: '09:30',
+    startDate: '',
+    durationMins: 30,
+    meetingLink: '',
+    notes: '',
+  };
+}
+
+/** The editable shape of the add/edit form (strings for inputs). */
+interface SeasonCeremonyDraft {
+  kind: CeremonyKind;
+  title: string;
+  cadence: CeremonyCadence;
+  dayOfWeek: number;
+  time: string;
+  startDate: string;
+  durationMins: number;
+  meetingLink: string;
+  notes: string;
+}
+
+/**
+ * Collaborative-mode panel (#22b): the season's ceremony calendar. Shows an
+ * agenda of ceremonies sorted by next occurrence (kind icon, schedule, computed
+ * next time, a Join link when a meeting link is set, an "Add to Google Calendar"
+ * link, and edit/remove controls), plus an add/edit form. Persists via
+ * `season.ceremonies.add/update/remove`; the `season:updated` broadcast keeps
+ * the agenda live.
+ */
+function CeremoniesPanel({ season }: { season: Season }) {
+  const api = typeof window !== 'undefined'
+    ? (window as unknown as { electronAPI: any }).electronAPI
+    : null;
+
+  const ceremonies = Array.isArray(season.ceremonies) ? season.ceremonies : [];
+
+  // null = form closed; '' (new) vs an id (editing existing).
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [formOpen, setFormOpen] = useState(false);
+  const [draft, setDraft] = useState<SeasonCeremonyDraft>(emptyCeremonyDraft());
+  const [saving, setSaving] = useState(false);
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  // Sort the agenda by next occurrence (computable first, ascending); leave
+  // non-computable ceremonies at the end in their stored order.
+  const agenda = ceremonies
+    .map(c => ({ c, next: nextOccurrence(c) }))
+    .sort((a, b) => {
+      if (a.next && b.next) return a.next.getTime() - b.next.getTime();
+      if (a.next) return -1;
+      if (b.next) return 1;
+      return 0;
+    });
+
+  const openAdd = () => {
+    setEditingId('');
+    setDraft(emptyCeremonyDraft());
+    setFormOpen(true);
+  };
+
+  const openEdit = (c: SeasonCeremony) => {
+    setEditingId(c.id);
+    setDraft({
+      kind: c.kind,
+      title: c.title,
+      cadence: c.cadence,
+      dayOfWeek: typeof c.dayOfWeek === 'number' ? c.dayOfWeek : 1,
+      time: c.time ?? '',
+      startDate: c.startDate ?? '',
+      durationMins: typeof c.durationMins === 'number' ? c.durationMins : 30,
+      meetingLink: c.meetingLink ?? '',
+      notes: c.notes ?? '',
+    });
+    setFormOpen(true);
+  };
+
+  const closeForm = () => {
+    setFormOpen(false);
+    setEditingId(null);
+  };
+
+  const openExternal = (url: string) => {
+    // Reuse the existing shell open-external path (allowlisted to http/https).
+    if (api?.shell?.openExternal) {
+      api.shell.openExternal({ url });
+    }
+  };
+
+  const saveDraft = async () => {
+    if (saving) return;
+    const input = {
+      kind: draft.kind,
+      title: draft.title.trim() || CEREMONY_KIND_LABEL[draft.kind],
+      cadence: draft.cadence,
+      dayOfWeek: (draft.cadence === 'weekly' || draft.cadence === 'biweekly') ? draft.dayOfWeek : undefined,
+      time: draft.time.trim() || undefined,
+      startDate: (draft.cadence === 'once' || draft.cadence === 'biweekly') && draft.startDate.trim()
+        ? draft.startDate.trim()
+        : undefined,
+      durationMins: draft.durationMins,
+      meetingLink: draft.meetingLink.trim() || undefined,
+      notes: draft.notes.trim() || undefined,
+    };
+    setSaving(true);
+    try {
+      if (editingId) {
+        if (!api?.season?.ceremonies?.update) return;
+        await api.season.ceremonies.update(season.id, editingId, input);
+      } else {
+        if (!api?.season?.ceremonies?.add) return;
+        await api.season.ceremonies.add(season.id, input);
+      }
+      // The `season:updated` broadcast re-renders the agenda.
+      closeForm();
+    } catch (err) {
+      console.error('Failed to save ceremony:', err);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const removeCeremony = async (id: string) => {
+    if (!api?.season?.ceremonies?.remove || busyId) return;
+    setBusyId(id);
+    try {
+      await api.season.ceremonies.remove(season.id, id);
+    } catch (err) {
+      console.error('Failed to remove ceremony:', err);
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  return (
+    <div className="mt-3 border-t border-border pt-3">
+      <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
+        <h4 className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+          <Calendar className="w-3.5 h-3.5 text-muted-foreground" />
+          Ceremonies
+        </h4>
+        {!formOpen && (
+          <button
+            type="button"
+            onClick={openAdd}
+            className="flex items-center gap-1 px-2 py-1 text-[11px] font-medium bg-secondary text-foreground rounded-md hover:bg-secondary/70 transition-colors border border-border"
+          >
+            <Plus className="w-3 h-3" /> Add ceremony
+          </button>
+        )}
+      </div>
+
+      {agenda.length === 0 && !formOpen ? (
+        <p className="text-[11px] text-muted-foreground">
+          No ceremonies yet — add your standups, grooming, sprint reviews, and team meetings.
+        </p>
+      ) : (
+        <div className="space-y-1.5">
+          {agenda.map(({ c, next }) => {
+            const Icon = ceremonyIcon(c.kind);
+            const gcal = googleCalendarUrl(c);
+            return (
+              <div
+                key={c.id}
+                className="flex items-start gap-2 px-2.5 py-2 rounded-lg border border-border bg-secondary/30 flex-wrap"
+              >
+                <Icon className="w-3.5 h-3.5 text-primary shrink-0 mt-0.5" />
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="text-xs text-foreground font-medium truncate" title={c.title}>
+                      {c.title}
+                    </span>
+                    <span className="text-[10px] px-1.5 py-0.5 rounded shrink-0 border border-border bg-secondary text-muted-foreground">
+                      {CEREMONY_KIND_LABEL[c.kind]}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">
+                    {describeSchedule(c)}
+                    {next && <> · next <span className="text-foreground">{formatOccurrence(next)}</span></>}
+                  </p>
+                  {c.notes && (
+                    <p className="text-[11px] text-muted-foreground mt-0.5 line-clamp-2" title={c.notes}>
+                      {c.notes}
+                    </p>
+                  )}
+                  <div className="flex items-center gap-2 mt-1 flex-wrap">
+                    {c.meetingLink && (
+                      <button
+                        type="button"
+                        onClick={() => openExternal(c.meetingLink!)}
+                        className="flex items-center gap-1 text-[11px] text-primary hover:underline"
+                      >
+                        <Video className="w-3 h-3" /> Join
+                      </button>
+                    )}
+                    {gcal && (
+                      <button
+                        type="button"
+                        onClick={() => openExternal(gcal)}
+                        className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
+                      >
+                        <CalendarPlus className="w-3 h-3" /> Add to Google Calendar
+                      </button>
+                    )}
+                  </div>
+                </div>
+                <div className="flex items-center gap-1 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => openEdit(c)}
+                    title="Edit ceremony"
+                    className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
+                  >
+                    <Pencil className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => removeCeremony(c.id)}
+                    disabled={busyId === c.id}
+                    title="Remove ceremony"
+                    className="p-1 rounded-md text-muted-foreground hover:text-red-500 hover:bg-secondary transition-colors disabled:opacity-50"
+                  >
+                    {busyId === c.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {formOpen && (
+        <div className="mt-2 p-2.5 rounded-lg border border-border bg-background space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-semibold text-foreground">
+              {editingId ? 'Edit ceremony' : 'New ceremony'}
+            </span>
+            <button
+              type="button"
+              onClick={closeForm}
+              className="p-0.5 rounded text-muted-foreground hover:text-foreground"
+              title="Cancel"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            <label className="flex flex-col gap-0.5">
+              <span className="text-[10px] text-muted-foreground">Kind</span>
+              <select
+                value={draft.kind}
+                onChange={e => setDraft(d => ({ ...d, kind: e.target.value as CeremonyKind }))}
+                className="text-[11px] px-2 py-1 rounded-md bg-background border border-border text-foreground focus:outline-none focus:border-primary/50"
+              >
+                {(Object.keys(CEREMONY_KIND_LABEL) as CeremonyKind[]).map(k => (
+                  <option key={k} value={k}>{CEREMONY_KIND_LABEL[k]}</option>
+                ))}
+              </select>
+            </label>
+            <label className="flex flex-col gap-0.5">
+              <span className="text-[10px] text-muted-foreground">Cadence</span>
+              <select
+                value={draft.cadence}
+                onChange={e => setDraft(d => ({ ...d, cadence: e.target.value as CeremonyCadence }))}
+                className="text-[11px] px-2 py-1 rounded-md bg-background border border-border text-foreground focus:outline-none focus:border-primary/50"
+              >
+                {(Object.keys(CADENCE_LABEL) as CeremonyCadence[]).map(c => (
+                  <option key={c} value={c}>{CADENCE_LABEL[c]}</option>
+                ))}
+              </select>
+            </label>
+          </div>
+
+          <label className="flex flex-col gap-0.5">
+            <span className="text-[10px] text-muted-foreground">Title</span>
+            <input
+              type="text"
+              value={draft.title}
+              onChange={e => setDraft(d => ({ ...d, title: e.target.value }))}
+              placeholder={CEREMONY_KIND_LABEL[draft.kind]}
+              className="text-[11px] px-2 py-1 rounded-md bg-background border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/50"
+            />
+          </label>
+
+          <div className="grid grid-cols-3 gap-2">
+            {(draft.cadence === 'weekly' || draft.cadence === 'biweekly') && (
+              <label className="flex flex-col gap-0.5">
+                <span className="text-[10px] text-muted-foreground">Day</span>
+                <select
+                  value={draft.dayOfWeek}
+                  onChange={e => setDraft(d => ({ ...d, dayOfWeek: Number(e.target.value) }))}
+                  className="text-[11px] px-2 py-1 rounded-md bg-background border border-border text-foreground focus:outline-none focus:border-primary/50"
+                >
+                  {DOW_LABEL.map((label, i) => (
+                    <option key={i} value={i}>{label}</option>
+                  ))}
+                </select>
+              </label>
+            )}
+            <label className="flex flex-col gap-0.5">
+              <span className="text-[10px] text-muted-foreground">Time</span>
+              <input
+                type="time"
+                value={draft.time}
+                onChange={e => setDraft(d => ({ ...d, time: e.target.value }))}
+                className="text-[11px] px-2 py-1 rounded-md bg-background border border-border text-foreground focus:outline-none focus:border-primary/50"
+              />
+            </label>
+            <label className="flex flex-col gap-0.5">
+              <span className="text-[10px] text-muted-foreground">Duration (min)</span>
+              <input
+                type="number"
+                min={5}
+                max={720}
+                value={draft.durationMins}
+                onChange={e => setDraft(d => ({ ...d, durationMins: Number(e.target.value) }))}
+                className="text-[11px] px-2 py-1 rounded-md bg-background border border-border text-foreground focus:outline-none focus:border-primary/50"
+              />
+            </label>
+          </div>
+
+          {(draft.cadence === 'once' || draft.cadence === 'biweekly') && (
+            <label className="flex flex-col gap-0.5">
+              <span className="text-[10px] text-muted-foreground">
+                {draft.cadence === 'once' ? 'Date' : 'Anchor date'}
+              </span>
+              <input
+                type="date"
+                value={draft.startDate}
+                onChange={e => setDraft(d => ({ ...d, startDate: e.target.value }))}
+                className="text-[11px] px-2 py-1 rounded-md bg-background border border-border text-foreground focus:outline-none focus:border-primary/50"
+              />
+            </label>
+          )}
+
+          <label className="flex flex-col gap-0.5">
+            <span className="text-[10px] text-muted-foreground">Meeting link</span>
+            <input
+              type="url"
+              value={draft.meetingLink}
+              onChange={e => setDraft(d => ({ ...d, meetingLink: e.target.value }))}
+              placeholder="https://meet.google.com/…"
+              className="text-[11px] px-2 py-1 rounded-md bg-background border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/50"
+            />
+          </label>
+
+          <label className="flex flex-col gap-0.5">
+            <span className="text-[10px] text-muted-foreground">Notes / agenda</span>
+            <textarea
+              value={draft.notes}
+              onChange={e => setDraft(d => ({ ...d, notes: e.target.value }))}
+              rows={2}
+              className="text-[11px] px-2 py-1 rounded-md bg-background border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/50 resize-y"
+            />
+          </label>
+
+          <div className="flex items-center gap-2 pt-0.5">
+            <button
+              type="button"
+              onClick={saveDraft}
+              disabled={saving}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-50"
+            >
+              {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
+              Save
+            </button>
+            <button
+              type="button"
+              onClick={closeForm}
+              className="px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      <p className="mt-2 text-[10px] text-muted-foreground">
+        The primary-contact agent will attend + summarize these meetings (lands with 22c).
+        Auto-scheduling on these times is #18.
+      </p>
+    </div>
+  );
 }
 
 /* ─── Context panel (brownfield ingestion) ───────────────────── */

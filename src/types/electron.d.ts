@@ -45,6 +45,30 @@ export interface HumanTeamCandidates {
   reasons: { github?: string; jira?: string };
 }
 
+/** Kind of team ceremony on a season's calendar (#22b). */
+export type CeremonyKind = 'standup' | 'grooming' | 'sprint-end' | 'team-meeting' | 'custom';
+
+/** How often a ceremony repeats (#22b). */
+export type CeremonyCadence = 'daily' | 'weekly' | 'biweekly' | 'once';
+
+/** One configured ceremony on a season's calendar (#22b). */
+export interface SeasonCeremony {
+  id: string;
+  kind: CeremonyKind;
+  title: string;
+  cadence: CeremonyCadence;
+  dayOfWeek?: number;
+  time?: string;
+  startDate?: string;
+  durationMins?: number;
+  meetingLink?: string;
+  notes?: string;
+  createdAt: string;
+}
+
+/** Loose input for adding/updating a ceremony (#22b) — id/createdAt are filled. */
+export type SeasonCeremonyInput = Partial<Omit<SeasonCeremony, 'id' | 'createdAt'>>;
+
 export interface KanbanCommentElectron {
   id: string;
   author: string;
@@ -961,6 +985,22 @@ export interface ElectronAPI {
         seats: HumanSeat[],
       ) => Promise<{ success: boolean; season?: unknown; error?: string }>;
       candidates: (seasonId: string) => Promise<HumanTeamCandidates>;
+    };
+    // Ceremony calendar (#22b): per-season standups/grooming/reviews/meetings.
+    ceremonies?: {
+      add: (
+        seasonId: string,
+        input: SeasonCeremonyInput,
+      ) => Promise<{ success: boolean; season?: unknown; error?: string }>;
+      update: (
+        seasonId: string,
+        ceremonyId: string,
+        patch: SeasonCeremonyInput,
+      ) => Promise<{ success: boolean; season?: unknown; error?: string }>;
+      remove: (
+        seasonId: string,
+        ceremonyId: string,
+      ) => Promise<{ success: boolean; season?: unknown; error?: string }>;
     };
     [key: string]: unknown;
   };

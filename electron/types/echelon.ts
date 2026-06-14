@@ -113,6 +113,49 @@ export interface HumanSeat {
   displayName?: string;
 }
 
+/**
+ * A recurring (or one-off) team ceremony for a Collaborative-mode season (#22b /
+ * Scott's requirement #11): standups, grooming, sprint reviews, team meetings.
+ *   • `standup`      — a daily/weekly sync.
+ *   • `grooming`     — backlog refinement.
+ *   • `sprint-end`   — end-of-sprint review/retro.
+ *   • `team-meeting` — a general team meeting.
+ *   • `custom`       — anything else (free-form title).
+ */
+export type CeremonyKind = 'standup' | 'grooming' | 'sprint-end' | 'team-meeting' | 'custom';
+
+/** How often a ceremony repeats. `once` is a single dated occurrence. */
+export type CeremonyCadence = 'daily' | 'weekly' | 'biweekly' | 'once';
+
+/**
+ * One configured ceremony on a season's calendar (#22b). Stores the cadence +
+ * timing + an optional join link; the renderer computes the next occurrence and
+ * an "Add to Google Calendar" template URL from these fields. Auto-firing these
+ * on schedule (the Autonomous-mode cron) is deferred to #18 — this only stores
+ * the schedule + meeting link.
+ */
+export interface SeasonCeremony {
+  /** Stable id (uuid). */
+  id: string;
+  kind: CeremonyKind;
+  /** Display title, e.g. "Daily Standup". */
+  title: string;
+  cadence: CeremonyCadence;
+  /** 0-6 (Sun-Sat) — used for `weekly`/`biweekly`. */
+  dayOfWeek?: number;
+  /** 'HH:MM' 24h local time. */
+  time?: string;
+  /** ISO date (YYYY-MM-DD) — the date for `once`, or the anchor for `biweekly`. */
+  startDate?: string;
+  /** Meeting duration in minutes (default 30). */
+  durationMins?: number;
+  /** The join URL (Zoom / Google Meet / Teams / …). */
+  meetingLink?: string;
+  /** Free-form notes / agenda. */
+  notes?: string;
+  createdAt: string;
+}
+
 export interface Season {
   id: string;
   name: string;
@@ -158,6 +201,13 @@ export interface Season {
    * auto-approved, all seats agent-run.
    */
   humanTeam?: { seats: HumanSeat[] };
+  /**
+   * The team's ceremony calendar for a collaborative season (#22b): standups,
+   * grooming, sprint reviews, team meetings — each with a cadence, a time, and an
+   * optional meeting link. Shown on the control board in Collaborative mode.
+   * Auto-firing on schedule is deferred to #18; this only stores the config.
+   */
+  ceremonies?: SeasonCeremony[];
 }
 
 export interface Character extends AgentStatus {

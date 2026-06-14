@@ -16,7 +16,8 @@ import { composeRosterFromPrd } from './composer';
 import { trustClaudeProjects } from './claude-trust';
 import { bootstrapRepoContext } from './repo-context';
 import { validateLocalClone } from './git-validate';
-import type { Season, SeasonStatus, SeasonSourceControl, SeasonIntake, SeasonMode, HumanSeat } from '../types/echelon';
+import { v4 as uuidv4 } from 'uuid';
+import type { Season, SeasonStatus, SeasonSourceControl, SeasonIntake, SeasonMode, HumanSeat, SeasonCeremony, CeremonyKind, CeremonyCadence } from '../types/echelon';
 import type { AgentStatus, AgentPermissionMode, AppSettings } from '../types';
 import type { RosterManifestData, RosterCharacterEntry } from './roster-manager';
 
@@ -1224,4 +1225,230 @@ async function fetchJiraAssignableUsers(
     });
   }
   return out;
+}
+
+// ─── #22b — season ceremony calendar (standups, grooming, reviews, meetings) ──
+
+const VALID_CEREMONY_KINDS: ReadonlySet<CeremonyKind> = new Set([
+  'standup',
+  'grooming',
+  'sprint-end',
+  'team-meeting',
+  'custom',
+]);
+const VALID_CEREMONY_CADENCES: ReadonlySet<CeremonyCadence> = new Set([
+  'daily',
+  'weekly',
+  'biweekly',
+  'once',
+]);
+
+/** Default per-kind titles when the caller doesn't supply one. */
+const DEFAULT_CEREMONY_TITLES: Record<CeremonyKind, string> = {
+  standup: 'Standup',
+  grooming: 'Backlog Grooming',
+  'sprint-end': 'Sprint Review',
+  'team-meeting': 'Team Meeting',
+  custom: 'Ceremony',
+};
+
+/** Loose input for {@link addCeremony} / {@link updateCeremony} (id/createdAt filled). */
+export type SeasonCeremonyInput = Partial<Omit<SeasonCeremony, 'id' | 'createdAt'>>;
+
+/** Clamp + sanity-check `dayOfWeek` to 0-6, else undefined. */
+function sanitizeDayOfWeek(d: unknown): number | undefined {
+  if (typeof d !== 'number' || !Number.isFinite(d)) return undefined;
+  const n = Math.trunc(d);
+  if (n < 0 || n > 6) return undefined;
+  return n;
+}
+
+/** Accept only 'HH:MM' 24h; else undefined. */
+function sanitizeTime(t: unknown): string | undefined {
+  if (typeof t !== 'string') return undefined;
+  const trimmed = t.trim();
+  return /^([01]\d|2[0-3]):[0-5]\d$/.test(trimmed) ? trimmed : undefined;
+}
+
+/** Accept only an ISO date 'YYYY-MM-DD'; else undefined. */
+function sanitizeStartDate(d: unknown): string | undefined {
+  if (typeof d !== 'string') return undefined;
+  const trimmed = d.trim();
+  return /^\d{4}-\d{2}-\d{2}$/.test(trimmed) ? trimmed : undefined;
+}
+
+/** Clamp duration to a sane 5-720 minute range; default 30. */
+function sanitizeDuration(d: unknown): number {
+  if (typeof d !== 'number' || !Number.isFinite(d)) return 30;
+  const n = Math.trunc(d);
+  if (n < 5) return 5;
+  if (n > 720) return 720;
+  return n;
+}
+
+/** Accept only http(s) meeting links; else undefined. */
+function sanitizeMeetingLink(l: unknown): string | undefined {
+  if (typeof l !== 'string') return undefined;
+  const trimmed = l.trim();
+  if (!trimmed) return undefined;
+  try {
+    const u = new URL(trimmed);
+    return u.protocol === 'http:' || u.protocol === 'https:' ? trimmed : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Build a validated {@link SeasonCeremony} from loose input. Defaults missing
+ * fields defensively (kind → 'team-meeting', cadence → 'weekly', title → a
+ * per-kind default, duration → 30). Pure; never throws.
+ */
+function buildCeremony(input: SeasonCeremonyInput): SeasonCeremony {
+  const kind: CeremonyKind = VALID_CEREMONY_KINDS.has(input.kind as CeremonyKind)
+    ? (input.kind as CeremonyKind)
+    : 'team-meeting';
+  const cadence: CeremonyCadence = VALID_CEREMONY_CADENCES.has(input.cadence as CeremonyCadence)
+    ? (input.cadence as CeremonyCadence)
+    : 'weekly';
+  const title =
+    typeof input.title === 'string' && input.title.trim()
+      ? input.title.trim().slice(0, 200)
+      : DEFAULT_CEREMONY_TITLES[kind];
+  const notes = typeof input.notes === 'string' ? input.notes.slice(0, 4000) : undefined;
+
+  return {
+    id: uuidv4(),
+    kind,
+    title,
+    cadence,
+    dayOfWeek: sanitizeDayOfWeek(input.dayOfWeek),
+    time: sanitizeTime(input.time),
+    startDate: sanitizeStartDate(input.startDate),
+    durationMins: sanitizeDuration(input.durationMins),
+    meetingLink: sanitizeMeetingLink(input.meetingLink),
+    notes: notes || undefined,
+    createdAt: new Date().toISOString(),
+  };
+}
+
+/** Human label for a ceremony kind (used in the system log entry). */
+function ceremonyKindLabel(kind: CeremonyKind): string {
+  switch (kind) {
+    case 'standup': return 'Standup';
+    case 'grooming': return 'Grooming';
+    case 'sprint-end': return 'Sprint review';
+    case 'team-meeting': return 'Team meeting';
+    default: return 'Ceremony';
+  }
+}
+
+/** Append a `system` conversation entry describing a ceremony change. Never throws. */
+function logCeremony(seasonId: string, text: string): void {
+  void (async () => {
+    try {
+      const { appendConversationEntry } = await import('./conversation-log');
+      appendConversationEntry(seasonId, {
+        agentId: 'system',
+        canonName: 'Ops',
+        kind: 'system',
+        text,
+      });
+    } catch (err) {
+      console.error(`logCeremony: failed to log for season ${seasonId}:`, err);
+    }
+  })();
+}
+
+/**
+ * Add a ceremony to a collaborative season's calendar (#22b). Validates input
+ * defensively, persists `season.ceremonies`, broadcasts `season:updated`, and
+ * logs a system entry. Returns the updated season (undefined for an unknown
+ * season). Never throws.
+ */
+export function addCeremony(seasonId: string, input: SeasonCeremonyInput): Season | undefined {
+  const season = seasons.get(seasonId);
+  if (!season) return undefined;
+
+  const ceremony = buildCeremony(input ?? {});
+  const list = Array.isArray(season.ceremonies) ? season.ceremonies : [];
+  season.ceremonies = [...list, ceremony];
+
+  saveSeason(seasonId);
+  broadcastToAllWindows('season:updated', season);
+
+  const at = ceremony.time ? ` @ ${ceremony.time}` : '';
+  logCeremony(seasonId, `Ceremony added: ${ceremonyKindLabel(ceremony.kind)} "${ceremony.title}"${at}.`);
+
+  return season;
+}
+
+/**
+ * Update an existing ceremony by id (#22b). Re-validates only the supplied
+ * fields, leaving the rest intact (and preserving id/createdAt). Persists +
+ * broadcasts + logs. No-op (returns the season unchanged) when the ceremony id
+ * isn't found; undefined for an unknown season. Never throws.
+ */
+export function updateCeremony(
+  seasonId: string,
+  ceremonyId: string,
+  patch: SeasonCeremonyInput,
+): Season | undefined {
+  const season = seasons.get(seasonId);
+  if (!season) return undefined;
+
+  const list = Array.isArray(season.ceremonies) ? season.ceremonies : [];
+  const idx = list.findIndex((c) => c.id === ceremonyId);
+  if (idx === -1) return season;
+
+  const existing = list[idx];
+  const p = patch ?? {};
+  // Re-validate the full merged shape so updated fields stay sane, but keep the
+  // stable id + createdAt from the existing entry.
+  const merged = buildCeremony({
+    kind: p.kind ?? existing.kind,
+    title: p.title ?? existing.title,
+    cadence: p.cadence ?? existing.cadence,
+    dayOfWeek: p.dayOfWeek ?? existing.dayOfWeek,
+    time: p.time ?? existing.time,
+    startDate: p.startDate ?? existing.startDate,
+    durationMins: p.durationMins ?? existing.durationMins,
+    meetingLink: p.meetingLink ?? existing.meetingLink,
+    notes: p.notes ?? existing.notes,
+  });
+  const updated: SeasonCeremony = { ...merged, id: existing.id, createdAt: existing.createdAt };
+
+  const next = list.slice();
+  next[idx] = updated;
+  season.ceremonies = next;
+
+  saveSeason(seasonId);
+  broadcastToAllWindows('season:updated', season);
+
+  logCeremony(seasonId, `Ceremony updated: ${ceremonyKindLabel(updated.kind)} "${updated.title}".`);
+
+  return season;
+}
+
+/**
+ * Remove a ceremony by id (#22b). Persists + broadcasts + logs. No-op (returns
+ * the season unchanged) when the id isn't found; undefined for an unknown
+ * season. Never throws.
+ */
+export function removeCeremony(seasonId: string, ceremonyId: string): Season | undefined {
+  const season = seasons.get(seasonId);
+  if (!season) return undefined;
+
+  const list = Array.isArray(season.ceremonies) ? season.ceremonies : [];
+  const target = list.find((c) => c.id === ceremonyId);
+  if (!target) return season;
+
+  season.ceremonies = list.filter((c) => c.id !== ceremonyId);
+
+  saveSeason(seasonId);
+  broadcastToAllWindows('season:updated', season);
+
+  logCeremony(seasonId, `Ceremony removed: ${ceremonyKindLabel(target.kind)} "${target.title}".`);
+
+  return season;
 }

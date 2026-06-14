@@ -792,6 +792,42 @@ contextBridge.exposeInMainWorld('electronAPI', {
       candidates: (seasonId: string) =>
         ipcRenderer.invoke('season:humanteam:candidates', seasonId),
     },
+    // Ceremony calendar (#22b): per-season standups/grooming/reviews/meetings,
+    // each with a cadence + time + optional meeting link. Add/update/remove only;
+    // the next-occurrence + Add-to-Google-Calendar URL are computed in the UI.
+    ceremonies: {
+      add: (
+        seasonId: string,
+        input: {
+          kind?: 'standup' | 'grooming' | 'sprint-end' | 'team-meeting' | 'custom';
+          title?: string;
+          cadence?: 'daily' | 'weekly' | 'biweekly' | 'once';
+          dayOfWeek?: number;
+          time?: string;
+          startDate?: string;
+          durationMins?: number;
+          meetingLink?: string;
+          notes?: string;
+        },
+      ) => ipcRenderer.invoke('season:ceremony:add', seasonId, input),
+      update: (
+        seasonId: string,
+        ceremonyId: string,
+        patch: {
+          kind?: 'standup' | 'grooming' | 'sprint-end' | 'team-meeting' | 'custom';
+          title?: string;
+          cadence?: 'daily' | 'weekly' | 'biweekly' | 'once';
+          dayOfWeek?: number;
+          time?: string;
+          startDate?: string;
+          durationMins?: number;
+          meetingLink?: string;
+          notes?: string;
+        },
+      ) => ipcRenderer.invoke('season:ceremony:update', seasonId, ceremonyId, patch),
+      remove: (seasonId: string, ceremonyId: string) =>
+        ipcRenderer.invoke('season:ceremony:remove', seasonId, ceremonyId),
+    },
     onUpdated: (callback: (season: any) => void) => {
       const listener = (_: unknown, season: any) => callback(season);
       ipcRenderer.on('season:updated', listener);

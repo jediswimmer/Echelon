@@ -10,8 +10,11 @@ import {
   setSeasonMode,
   setHumanTeam,
   listHumanTeamCandidates,
+  addCeremony,
+  updateCeremony,
+  removeCeremony,
 } from '../core/season-manager';
-import type { SeasonRuntimeDeps } from '../core/season-manager';
+import type { SeasonRuntimeDeps, SeasonCeremonyInput } from '../core/season-manager';
 import type { SeasonMode, HumanSeat } from '../types/echelon';
 import { readConversation } from '../core/conversation-log';
 import type { ConversationKind } from '../core/conversation-log';
@@ -234,6 +237,47 @@ export function registerSeasonHandlers(deps: SeasonHandlerDependencies): void {
     } catch (err) {
       console.error('Failed to list human team candidates:', err);
       return { github: [], jira: [], reasons: { github: String(err), jira: String(err) } };
+    }
+  });
+
+  // ── #22b — season ceremony calendar (standups, grooming, reviews, meetings) ──
+  // Each handler validates input backend-side (the core functions never throw)
+  // and returns the updated season for the renderer; the `season:updated`
+  // broadcast keeps the live control board in sync.
+
+  ipcMain.handle('season:ceremony:add', async (_event, seasonId: string, input: SeasonCeremonyInput) => {
+    try {
+      const season = addCeremony(seasonId, input ?? {});
+      if (!season) return { success: false, error: 'Season not found.' };
+      return { success: true, season };
+    } catch (err) {
+      console.error('Failed to add ceremony:', err);
+      return { success: false, error: String(err) };
+    }
+  });
+
+  ipcMain.handle(
+    'season:ceremony:update',
+    async (_event, seasonId: string, ceremonyId: string, patch: SeasonCeremonyInput) => {
+      try {
+        const season = updateCeremony(seasonId, ceremonyId, patch ?? {});
+        if (!season) return { success: false, error: 'Season not found.' };
+        return { success: true, season };
+      } catch (err) {
+        console.error('Failed to update ceremony:', err);
+        return { success: false, error: String(err) };
+      }
+    },
+  );
+
+  ipcMain.handle('season:ceremony:remove', async (_event, seasonId: string, ceremonyId: string) => {
+    try {
+      const season = removeCeremony(seasonId, ceremonyId);
+      if (!season) return { success: false, error: 'Season not found.' };
+      return { success: true, season };
+    } catch (err) {
+      console.error('Failed to remove ceremony:', err);
+      return { success: false, error: String(err) };
     }
   });
 }
