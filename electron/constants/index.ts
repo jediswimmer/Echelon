@@ -1,7 +1,26 @@
 import * as path from 'path';
 import * as os from 'os';
+import { app } from 'electron';
 
 export const API_PORT = 31415;
+
+/**
+ * Roster content source directory (the 70 archetypes + themed character soul
+ * packages live under `src/team-factory/`).
+ *
+ * Resolved lazily because `app.getAppPath()` is only meaningful once the
+ * Electron app object exists, and this module is imported very early. Mirrors
+ * the asar-unpacked fallback used in `electron/utils/index.ts` so the roster
+ * content resolves correctly in a packaged build (where it is unpacked to
+ * `app.asar.unpacked/`).
+ */
+export function getTeamFactoryDir(): string {
+  let appPath = app.getAppPath();
+  if (appPath.includes('app.asar')) {
+    appPath = appPath.replace('app.asar', 'app.asar.unpacked');
+  }
+  return path.join(appPath, 'src/team-factory');
+}
 
 export const OLD_DATA_DIR = path.join(os.homedir(), '.claude-manager');
 export const LEGACY_DOROTHY_DIR = path.join(os.homedir(), '.dorothy');

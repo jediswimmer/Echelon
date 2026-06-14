@@ -714,7 +714,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   season: {
     list: () => ipcRenderer.invoke('season:list'),
     get: (id: string) => ipcRenderer.invoke('season:get', id),
-    spawn: (config: any) => ipcRenderer.invoke('season:spawn', config),
+    spawn: (config: {
+      id: string;
+      name: string;
+      theme: string;
+      prd?: string;
+      rosterEntries: Array<{ archetype: string; character: string; capabilities: string[] }>;
+    }) => ipcRenderer.invoke('season:spawn', config),
     archive: (id: string) => ipcRenderer.invoke('season:archive', id),
     restore: (id: string) => ipcRenderer.invoke('season:restore', id),
     characters: (seasonId: string) => ipcRenderer.invoke('season:characters', seasonId),

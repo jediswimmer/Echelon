@@ -1,13 +1,37 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import { BrowserWindow } from 'electron';
 import { DATA_DIR } from '../constants';
 import { broadcastToAllWindows } from '../utils/broadcast';
-import { loadRosterManifest, saveRosterManifest } from './roster-manager';
-import { loadSoulPackage, extractCapabilities } from './character-loader';
-import type { Season, SeasonStatus, Character, RosterManifest } from '../types/echelon';
+import { saveRosterManifest } from './roster-manager';
+import { resolveCharacterDir, getSoulFiles, assembleSoulPromptFile } from './character-loader';
+import { loadAgentConfig } from './archetype-loader';
+import { mapCatalogModelToProviderModel } from './model-map';
+import { createAgent } from './agent-manager';
+import { assignConvener, setConvenerAgentId } from './convener-manager';
+import { getProvider } from '../providers';
+import { writeProgrammaticInput } from './pty-manager';
+import { buildFullPath } from '../utils/path-builder';
+import type { Season, SeasonStatus } from '../types/echelon';
+import type { AgentStatus, AppSettings } from '../types';
 import type { RosterManifestData, RosterCharacterEntry } from './roster-manager';
 
 const SEASONS_DIR = path.join(DATA_DIR, 'seasons');
+
+/**
+ * Dependencies injected into {@link spawnSeason} and {@link launchSeasonAgents}
+ * so this core module stays free of a circular dependency on `main.ts`. The
+ * caller (season-handlers) supplies these from the app's live state.
+ */
+export interface SeasonRuntimeDeps {
+  getMainWindow: () => BrowserWindow | null;
+  getAppSettings: () => AppSettings;
+  /** Forwards an agent status change to the notification system. */
+  handleStatusChangeNotification: (agent: AgentStatus, newStatus: string) => void;
+  /** Initializes (or re-initializes) a PTY for a restored/new agent. */
+  initAgentPty: (agent: AgentStatus) => Promise<string>;
+  saveAgents: () => void;
+}
 
 export const seasons: Map<string, Season> = new Map();
 
@@ -53,12 +77,42 @@ export function saveSeason(id: string): void {
   );
 }
 
-export function spawnSeason(config: {
-  id: string;
-  name: string;
-  theme: string;
-  rosterEntries: RosterCharacterEntry[];
-}): Season {
+/** Map of seasonId → ordered cast agents (used by launchSeasonAgents). */
+interface CastMember {
+  agent: AgentStatus;
+  slug: string;
+  isConvener: boolean;
+}
+const seasonCast: Map<string, CastMember[]> = new Map();
+
+/** Map of seasonId → the PRD/brief handed to the convener at launch. */
+const seasonPrd: Map<string, string> = new Map();
+
+/**
+ * Spawn a season AND cast a live team from the roster.
+ *
+ * For each roster entry this:
+ *   1. loads the archetype config (recommended model, skills, autonomy),
+ *   2. resolves the character's soul-package directory,
+ *   3. copies the soul files into the season dir (season owns a mutable copy),
+ *   4. assembles them into a single system-prompt file,
+ *   5. creates a worktree-isolated agent via the shared `createAgent`,
+ *   6. registers the agent on the season,
+ * then assigns the convener to the real cast agentId.
+ *
+ * Agents are created (PTY-backed, idle) but NOT yet launched — call
+ * {@link launchSeasonAgents} to start them working.
+ */
+export async function spawnSeason(
+  config: {
+    id: string;
+    name: string;
+    theme: string;
+    rosterEntries: RosterCharacterEntry[];
+    prd?: string;
+  },
+  deps: SeasonRuntimeDeps
+): Promise<Season> {
   const seasonDir = path.join(SEASONS_DIR, config.id);
   const workspacePath = path.join(seasonDir, 'workspace');
   const rosterManifestPath = path.join(seasonDir, 'roster.manifest.yaml');
@@ -66,6 +120,9 @@ export function spawnSeason(config: {
 
   fs.mkdirSync(workspacePath, { recursive: true });
   fs.mkdirSync(charactersDir, { recursive: true });
+
+  // The season workspace must be a git repo for worktree-isolated agents.
+  ensureGitRepo(workspacePath);
 
   const season: Season = {
     id: config.id,
@@ -92,7 +149,231 @@ export function spawnSeason(config: {
   saveSeason(config.id);
   broadcastToAllWindows('season:updated', season);
 
+  // ── Cast the team ────────────────────────────────────────────────
+  const cast: CastMember[] = [];
+
+  for (const entry of config.rosterEntries) {
+    try {
+      const cfg = loadAgentConfig(entry.archetype);
+      const slug = entry.character || cfg.character;
+      if (!slug) {
+        console.warn(`Season ${config.id}: roster entry ${entry.archetype} has no character — skipping`);
+        continue;
+      }
+
+      const sourceCharacterDir = resolveCharacterDir(config.theme, slug);
+
+      // Copy the soul files into a season-owned mutable copy.
+      const seasonCharacterDir = path.join(charactersDir, slug);
+      fs.mkdirSync(seasonCharacterDir, { recursive: true });
+      for (const soulFile of getSoulFiles(sourceCharacterDir)) {
+        fs.copyFileSync(soulFile, path.join(seasonCharacterDir, path.basename(soulFile)));
+      }
+
+      // Assemble the system-prompt file inside the season copy.
+      const systemPromptPath = path.join(seasonCharacterDir, 'system-prompt.md');
+      assembleSoulPromptFile(seasonCharacterDir, cfg.assemblyOrder, systemPromptPath);
+
+      // Cast the agent on its recommended model, worktree-isolated.
+      const agent = await createAgent(
+        {
+          name: slug,
+          projectPath: workspacePath,
+          worktree: { enabled: true, branchName: `season/${config.id}/${slug}` },
+          model: mapCatalogModelToProviderModel(cfg.modelPrimary),
+          skills: cfg.skills,
+          permissionMode: cfg.autonomy === 'autonomous' ? 'auto' : 'normal',
+          seasonId: config.id,
+          archetypeId: entry.archetype,
+          canonName: slug,
+          theme: config.theme,
+          soulPackagePath: seasonCharacterDir,
+        },
+        deps.getAppSettings,
+        deps.handleStatusChangeNotification
+      );
+
+      addCharacterToSeason(config.id, agent.id);
+      cast.push({ agent, slug, isConvener: false });
+    } catch (err) {
+      console.error(`Season ${config.id}: failed to cast ${entry.archetype} (${entry.character}):`, err);
+    }
+  }
+
+  // ── Assign the convener to a REAL cast agentId ───────────────────
+  const convenerSlug = assignConvener(config.id); // resolves the slug from theme/roster
+  if (convenerSlug) {
+    const convenerMember = cast.find((c) => c.slug === convenerSlug);
+    if (convenerMember) {
+      convenerMember.isConvener = true;
+      // Re-point the convener map at the real agentId (not the bare slug).
+      setConvenerAgentId(config.id, convenerMember.agent.id);
+    }
+  }
+
+  seasonCast.set(config.id, cast);
+  if (config.prd) seasonPrd.set(config.id, config.prd);
+
   return season;
+}
+
+/**
+ * Launch the cast agents for a season: init each PTY, build the Claude command
+ * (souls injected via the assembled system-prompt file, on the recommended
+ * model), and write it to the PTY. The PRD is handed to the convener; the rest
+ * receive a wake/standby brief. Flips the season to `active` once an agent
+ * reports `running`.
+ */
+export async function launchSeasonAgents(
+  id: string,
+  prd: string | undefined,
+  deps: SeasonRuntimeDeps
+): Promise<void> {
+  const season = seasons.get(id);
+  if (!season) {
+    console.warn(`launchSeasonAgents: season ${id} not found`);
+    return;
+  }
+
+  const cast = seasonCast.get(id) ?? [];
+  if (cast.length === 0) {
+    console.warn(`launchSeasonAgents: season ${id} has no cast to launch`);
+    return;
+  }
+
+  const effectivePrd = prd ?? seasonPrd.get(id) ?? '';
+  const cliProvider = getProvider('claude');
+  const binaryPath = cliProvider.resolveBinaryPath(deps.getAppSettings());
+
+  // Resolve an MCP config path the same way agent:start does (flag strategy).
+  let mcpConfigPath: string | undefined;
+  if (cliProvider.getMcpConfigStrategy() === 'flag') {
+    const possibleMcpPath = path.join(require('os').homedir(), '.claude', 'mcp.json');
+    if (fs.existsSync(possibleMcpPath)) mcpConfigPath = possibleMcpPath;
+  }
+
+  let flippedActive = false;
+
+  for (const member of cast) {
+    const { agent } = member;
+    try {
+      // Initialize the PTY (createAgent already made one, but mirror agent:start
+      // robustness: re-init if missing).
+      let ptyJustCreated = false;
+      if (!agent.ptyId) {
+        agent.ptyId = await deps.initAgentPty(agent);
+        ptyJustCreated = true;
+      }
+
+      const { ptyProcesses } = require('./pty-manager') as typeof import('./pty-manager');
+      const ptyProcess = ptyProcesses.get(agent.ptyId!);
+      if (!ptyProcess) {
+        console.warn(`launchSeasonAgents: no PTY for agent ${agent.id} (${member.slug})`);
+        continue;
+      }
+
+      // Souls were assembled into the season character dir.
+      const systemPromptFile = agent.soulPackagePath
+        ? path.join(agent.soulPackagePath, 'system-prompt.md')
+        : undefined;
+
+      // Convener gets the PRD; everyone else gets a standby/wake brief.
+      const prompt = member.isConvener
+        ? (effectivePrd
+            ? `You are the convener for season "${season.name}". Here is the product brief / PRD for this season. Read it, break it into tasks, and coordinate the team to deliver it.\n\n---\n\n${effectivePrd}`
+            : `You are the convener for season "${season.name}". Await the product brief, then coordinate the team.`)
+        : `You are a cast member of season "${season.name}". Stand by for delegated tasks from the convener and begin work when assigned.`;
+
+      const command = cliProvider.buildInteractiveCommand({
+        binaryPath,
+        prompt,
+        model: agent.model,
+        verbose: deps.getAppSettings().verboseModeEnabled,
+        permissionMode: agent.permissionMode ?? 'normal',
+        mcpConfigPath,
+        systemPromptFile: systemPromptFile && fs.existsSync(systemPromptFile) ? systemPromptFile : undefined,
+        skills: agent.skills,
+      });
+
+      const workingPath = (agent.worktreePath || agent.projectPath).replace(/'/g, "'\\''");
+      const fullCommand = `cd '${workingPath}' && ${command}`;
+
+      agent.status = 'running';
+      agent.currentTask = prompt.slice(0, 100);
+      agent.lastActivity = new Date().toISOString();
+      broadcastToAllWindows('agent:status', {
+        type: 'status',
+        agentId: agent.id,
+        status: 'running',
+        timestamp: agent.lastActivity,
+      });
+
+      // Freshly-spawned PTYs need a moment for bash to come up before input.
+      if (ptyJustCreated) {
+        await new Promise<void>((resolve) => {
+          setTimeout(() => {
+            writeProgrammaticInput(ptyProcess, fullCommand);
+            resolve();
+          }, 500);
+        });
+      } else {
+        writeProgrammaticInput(ptyProcess, fullCommand);
+      }
+
+      // Flip the season to active once the first agent is running.
+      if (!flippedActive) {
+        updateSeasonStatus(id, 'active');
+        flippedActive = true;
+      }
+    } catch (err) {
+      console.error(`launchSeasonAgents: failed to launch agent ${agent.id} (${member.slug}):`, err);
+    }
+  }
+
+  deps.saveAgents();
+}
+
+/**
+ * Ensure a directory is a git repository so worktree-isolated agents can be
+ * created against it. Initializes a repo with an empty initial commit if none
+ * exists (git worktree add requires at least one commit).
+ */
+function ensureGitRepo(dir: string): void {
+  try {
+    const { execSync } = require('child_process') as typeof import('child_process');
+    const isRepo = (() => {
+      try {
+        execSync('git rev-parse --is-inside-work-tree', { cwd: dir, stdio: 'pipe' });
+        return true;
+      } catch {
+        return false;
+      }
+    })();
+
+    if (!isRepo) {
+      execSync('git init', { cwd: dir, stdio: 'pipe' });
+    }
+
+    // Worktrees require at least one commit (HEAD). Create one if absent.
+    try {
+      execSync('git rev-parse HEAD', { cwd: dir, stdio: 'pipe' });
+    } catch {
+      // Ensure a committer identity is set for this repo (CI/headless safety).
+      try { execSync('git config user.email', { cwd: dir, stdio: 'pipe' }); }
+      catch { execSync('git config user.email "team@echelon.local"', { cwd: dir, stdio: 'pipe' }); }
+      try { execSync('git config user.name', { cwd: dir, stdio: 'pipe' }); }
+      catch { execSync('git config user.name "Echelon"', { cwd: dir, stdio: 'pipe' }); }
+
+      const readme = path.join(dir, 'README.md');
+      if (!fs.existsSync(readme)) {
+        fs.writeFileSync(readme, '# Season workspace\n', 'utf-8');
+      }
+      execSync('git add -A', { cwd: dir, stdio: 'pipe' });
+      execSync('git commit -m "Initial season workspace"', { cwd: dir, stdio: 'pipe' });
+    }
+  } catch (err) {
+    console.error(`ensureGitRepo failed for ${dir}:`, err);
+  }
 }
 
 export function updateSeasonStatus(id: string, status: SeasonStatus): void {

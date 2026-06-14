@@ -1,20 +1,33 @@
 import { ipcMain, BrowserWindow } from 'electron';
 import {
-  loadSeasons,
   getAllSeasons,
   getSeason,
   spawnSeason,
+  launchSeasonAgents,
   archiveSeason,
   restoreSeason,
 } from '../core/season-manager';
-import type { Season } from '../types/echelon';
+import type { SeasonRuntimeDeps } from '../core/season-manager';
+import type { AgentStatus, AppSettings } from '../types';
 
 export interface SeasonHandlerDependencies {
   getMainWindow: () => BrowserWindow | null;
+  getAppSettings: () => AppSettings;
+  handleStatusChangeNotification: (agent: AgentStatus, newStatus: string) => void;
+  initAgentPty: (agent: AgentStatus) => Promise<string>;
+  saveAgents: () => void;
 }
 
 export function registerSeasonHandlers(deps: SeasonHandlerDependencies): void {
   const { getMainWindow } = deps;
+
+  const runtimeDeps: SeasonRuntimeDeps = {
+    getMainWindow,
+    getAppSettings: deps.getAppSettings,
+    handleStatusChangeNotification: deps.handleStatusChangeNotification,
+    initAgentPty: deps.initAgentPty,
+    saveAgents: deps.saveAgents,
+  };
 
   // List all seasons
   ipcMain.handle('season:list', async () => {
@@ -41,11 +54,12 @@ export function registerSeasonHandlers(deps: SeasonHandlerDependencies): void {
     }
   });
 
-  // Spawn a new season
+  // Spawn a new season — casts a live team and launches the agents.
   ipcMain.handle('season:spawn', async (_event, config: {
     id: string;
     name: string;
     theme: string;
+    prd?: string;
     rosterEntries: Array<{
       archetype: string;
       character: string;
@@ -53,7 +67,9 @@ export function registerSeasonHandlers(deps: SeasonHandlerDependencies): void {
     }>;
   }) => {
     try {
-      const season = spawnSeason(config);
+      const season = await spawnSeason(config, runtimeDeps);
+      // Fire the team up: init PTYs, inject souls, hand the PRD to the convener.
+      await launchSeasonAgents(config.id, config.prd, runtimeDeps);
       return { success: true, season };
     } catch (err) {
       console.error('Failed to spawn season:', err);

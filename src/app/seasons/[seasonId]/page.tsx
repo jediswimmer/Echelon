@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { ArrowLeft, Users, Shield, Settings, Archive, RotateCcw } from 'lucide-react';
 import ThemeBadge from '@/components/Echelon/ThemeBadge';
@@ -193,35 +193,130 @@ export default function SeasonDetailPage() {
 
 /* ─── Roster Tab ─────────────────────────────────────────────── */
 
+interface CastAgent {
+  id: string;
+  name?: string;
+  canonName?: string;
+  archetypeId?: string;
+  status: string;
+  output?: string[];
+}
+
+/** Strip ANSI escape codes for plain-text preview. */
+function stripAnsi(s: string): string {
+  // eslint-disable-next-line no-control-regex
+  return s.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '').replace(/\x1b\][^\x07]*\x07/g, '');
+}
+
 function RosterTab({ season }: { season: Season }) {
+  const [agents, setAgents] = useState<Record<string, CastAgent>>({});
+  // Per-agent rolling output buffer (live PTY stream).
+  const outputs = useRef<Record<string, string>>({});
+  const [, forceRender] = useState(0);
+
+  const api = typeof window !== 'undefined'
+    ? (window as unknown as { electronAPI: any }).electronAPI
+    : null;
+
+  useEffect(() => {
+    if (!api?.agent) return;
+    let cancelled = false;
+
+    // Load the cast agents (characterIds are now real agent ids).
+    (async () => {
+      try {
+        const all: CastAgent[] = await api.agent.list();
+        if (cancelled) return;
+        const map: Record<string, CastAgent> = {};
+        for (const a of all) {
+          if (season.characterIds.includes(a.id)) {
+            map[a.id] = a;
+            outputs.current[a.id] = (a.output || []).join('');
+          }
+        }
+        setAgents(map);
+      } catch (err) {
+        console.error('Failed to load cast agents:', err);
+      }
+    })();
+
+    // Subscribe to the already-firing PTY broadcasts (no new IPC).
+    const unsubOutput = api.agent.onOutput((event: { agentId: string; data: string }) => {
+      if (!season.characterIds.includes(event.agentId)) return;
+      const prev = outputs.current[event.agentId] || '';
+      // Keep a bounded tail so the DOM stays light.
+      outputs.current[event.agentId] = (prev + event.data).slice(-4000);
+      forceRender(n => n + 1);
+    });
+
+    const unsubStatus = api.agent.onStatus((event: { agentId: string; status: string }) => {
+      if (!season.characterIds.includes(event.agentId)) return;
+      setAgents(prev => {
+        const existing = prev[event.agentId];
+        if (!existing) return prev;
+        return { ...prev, [event.agentId]: { ...existing, status: event.status } };
+      });
+    });
+
+    return () => {
+      cancelled = true;
+      unsubOutput?.();
+      unsubStatus?.();
+    };
+  }, [season.characterIds.join(',')]);
+
   if (season.characterIds.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-48 text-muted-foreground">
         <Users className="w-8 h-8 mb-2 opacity-50" />
         <p className="text-sm">No characters in this season</p>
-        <p className="text-xs mt-1">Characters are added when the season roster is populated</p>
+        <p className="text-xs mt-1">Characters are cast when the season is spawned</p>
       </div>
     );
   }
 
+  const statusColor = (status: string) => {
+    switch (status) {
+      case 'running': return 'bg-green-500';
+      case 'waiting': return 'bg-yellow-500';
+      case 'completed': return 'bg-blue-500';
+      case 'error': return 'bg-red-500';
+      default: return 'bg-muted-foreground/40';
+    }
+  };
+
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-      {season.characterIds.map(charId => (
-        <div
-          key={charId}
-          className="bg-card border border-border rounded-lg p-4 hover:border-primary/30 transition-colors"
-        >
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
-              <Users className="w-4 h-4 text-primary" />
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+      {season.characterIds.map(charId => {
+        const agent = agents[charId];
+        const label = agent?.canonName || agent?.name || charId;
+        const tail = stripAnsi(outputs.current[charId] || '').trim();
+        return (
+          <div
+            key={charId}
+            className="bg-card border border-border rounded-lg p-4 hover:border-primary/30 transition-colors flex flex-col"
+          >
+            <div className="flex items-center gap-3 mb-2">
+              <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
+                <Users className="w-4 h-4 text-primary" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium text-foreground truncate">{label}</p>
+                <p className="text-xs text-muted-foreground truncate">
+                  {agent?.archetypeId || 'Character'}
+                </p>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className={`w-2 h-2 rounded-full ${statusColor(agent?.status || 'idle')}`} />
+                <span className="text-xs text-muted-foreground capitalize">{agent?.status || 'idle'}</span>
+              </div>
             </div>
-            <div className="min-w-0">
-              <p className="text-sm font-medium text-foreground truncate">{charId}</p>
-              <p className="text-xs text-muted-foreground">Character</p>
-            </div>
+            <pre className="text-[10px] leading-relaxed font-mono bg-background/60 border border-border rounded p-2 h-32 overflow-y-auto whitespace-pre-wrap text-muted-foreground">
+              {tail || 'Waiting for output…'}
+            </pre>
           </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }

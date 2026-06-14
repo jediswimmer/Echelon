@@ -4,7 +4,15 @@ import * as path from 'path';
 import * as pty from 'node-pty';
 import { v4 as uuidv4 } from 'uuid';
 import { BrowserWindow, Notification } from 'electron';
-import { AgentStatus, AppSettings } from '../types';
+import {
+  AgentStatus,
+  AppSettings,
+  WorktreeConfig,
+  AgentCharacter,
+  AgentProvider,
+  AgentPermissionMode,
+  AgentEffort,
+} from '../types';
 import { broadcastToAllWindows } from '../utils/broadcast';
 import { AGENTS_FILE, DATA_DIR } from '../constants';
 import { ensureDataDir, isSuperAgent } from '../utils';
@@ -379,4 +387,262 @@ export async function initAgentPty(
   });
 
   return ptyId;
+}
+
+/**
+ * Configuration accepted by {@link createAgent}. This is the union of the
+ * standalone `agent:create` IPC config and the optional Echelon season fields
+ * so that season-spawned characters and UI-spawned agents share one casting
+ * code path. The two injected dependencies (`getAppSettings`,
+ * `handleStatusChangeNotification`) keep this module free of a circular
+ * dependency on `main.ts`.
+ */
+export interface CreateAgentConfig {
+  projectPath: string;
+  skills: string[];
+  worktree?: WorktreeConfig;
+  character?: AgentCharacter;
+  name?: string;
+  secondaryProjectPath?: string;
+  permissionMode?: AgentPermissionMode;
+  effort?: AgentEffort;
+  provider?: AgentProvider;
+  model?: string;
+  localModel?: string;
+  obsidianVaultPaths?: string[];
+  // Echelon season fields (optional — standalone agents do not set these)
+  seasonId?: string;
+  archetypeId?: string;
+  canonName?: string;
+  theme?: string;
+  soulPackagePath?: string;
+}
+
+/**
+ * Create a new PTY-backed agent. Extracted verbatim from the original inline
+ * `agent:create` IPC handler so that both standalone agents and season cast
+ * members go through one code path (no PTY/worktree-logic duplication).
+ *
+ * @param config       The agent + optional season fields.
+ * @param getAppSettings  Returns the live AppSettings (for CLI path resolution).
+ * @param handleStatusChangeNotificationCallback  Forwards status changes to the
+ *        notification system; matches the wrapper used by `initAgentPty`.
+ */
+export async function createAgent(
+  config: CreateAgentConfig,
+  getAppSettings: () => AppSettings,
+  handleStatusChangeNotificationCallback: (agent: AgentStatus, newStatus: string) => void
+): Promise<AgentStatus> {
+  const id = uuidv4();
+  const shell = '/bin/bash';
+
+  // Validate effort against allowed values to prevent shell injection
+  const VALID_EFFORTS: AgentEffort[] = ['low', 'medium', 'high'];
+  if (config.effort && !VALID_EFFORTS.includes(config.effort)) {
+    throw new Error(`Invalid effort level: ${config.effort}`);
+  }
+
+  // Validate model name: only allow safe characters (alphanumeric, dash, dot, slash, colon, underscore)
+  if (config.model && !/^[a-zA-Z0-9._\-\/:@]+$/.test(config.model)) {
+    throw new Error(`Invalid model name: ${config.model}`);
+  }
+
+  // Validate project path exists
+  let cwd = config.projectPath;
+  if (!fs.existsSync(cwd)) {
+    console.warn(`Project path does not exist: ${cwd}, using home directory`);
+    cwd = os.homedir();
+  }
+
+  let worktreePath: string | undefined;
+  let branchName: string | undefined;
+
+  // Create git worktree if enabled
+  if (config.worktree?.enabled && config.worktree?.branchName) {
+    branchName = config.worktree.branchName;
+    if (!/^[a-zA-Z0-9._\-\/]+$/.test(branchName)) {
+      throw new Error('Invalid branch name');
+    }
+    const worktreesDir = path.join(cwd, '.worktrees');
+    worktreePath = path.join(worktreesDir, branchName);
+
+    console.log(`Creating git worktree for agent ${id} at ${worktreePath} on branch ${branchName}`);
+
+    try {
+      // Create .worktrees directory if it doesn't exist
+      if (!fs.existsSync(worktreesDir)) {
+        fs.mkdirSync(worktreesDir, { recursive: true });
+      }
+
+      // Check if worktree already exists
+      if (fs.existsSync(worktreePath)) {
+        console.log(`Worktree already exists at ${worktreePath}, reusing it`);
+      } else {
+        // Create the worktree with a new branch
+        const { execSync } = await import('child_process');
+
+        // Check if branch already exists
+        try {
+          execSync(`git rev-parse --verify '${branchName}'`, { cwd, stdio: 'pipe' });
+          // Branch exists, create worktree using existing branch
+          execSync(`git worktree add '${worktreePath}' '${branchName}'`, { cwd, stdio: 'pipe' });
+        } catch {
+          // Branch doesn't exist, create worktree with new branch
+          execSync(`git worktree add -b '${branchName}' '${worktreePath}'`, { cwd, stdio: 'pipe' });
+        }
+      }
+
+      // Use the worktree path as the working directory
+      cwd = worktreePath;
+    } catch (err) {
+      console.error(`Failed to create git worktree:`, err);
+      // Continue without worktree if creation fails
+      worktreePath = undefined;
+      branchName = undefined;
+    }
+  }
+
+  console.log(`Creating PTY for agent ${id} with shell ${shell} in ${cwd}`);
+
+  // Build PATH that includes user-configured paths, nvm, and other common locations for claude
+  const currentSettings = getAppSettings();
+  const cliExtraPaths: string[] = [];
+  if (currentSettings.cliPaths) {
+    for (const key of ['claude', 'codex', 'gemini', 'opencode', 'pi', 'gws', 'gh', 'node'] as const) {
+      const val = (currentSettings.cliPaths as unknown as Record<string, string>)[key];
+      if (val) cliExtraPaths.push(path.dirname(val));
+    }
+    if (currentSettings.cliPaths.additionalPaths) {
+      cliExtraPaths.push(...currentSettings.cliPaths.additionalPaths.filter(Boolean));
+    }
+  }
+  const fullPath = buildFullPath(cliExtraPaths);
+
+  // Create PTY for this agent
+  // Strip nested-session env vars to prevent errors
+  const cleanEnv = { ...process.env as { [key: string]: string } };
+  // Each provider may have env vars to delete; always delete CLAUDECODE for Claude
+  delete cleanEnv['CLAUDECODE'];
+
+  // Always include world-builder skill so agents can generate game zones
+  const allSkills = [...new Set([...config.skills, 'world-builder'])];
+
+  // Get provider-specific env vars
+  const agentProvider = getProvider(config.provider);
+  const providerEnvVars = agentProvider.getPtyEnvVars(id, config.projectPath, allSkills);
+
+  let ptyProcess: pty.IPty;
+  try {
+    ptyProcess = pty.spawn(shell, ['-l'], {
+      name: 'xterm-256color',
+      cols: 120,
+      rows: 30,
+      cwd,
+      env: {
+        ...cleanEnv,
+        PATH: fullPath,
+        ...providerEnvVars,
+      },
+    });
+    console.log(`PTY created successfully for agent ${id}, PID: ${ptyProcess.pid}`);
+  } catch (err) {
+    console.error(`Failed to create PTY for agent ${id}:`, err);
+    throw err;
+  }
+
+  const ptyId = uuidv4();
+  ptyProcesses.set(ptyId, ptyProcess);
+
+  // Validate secondary project path if provided
+  let secondaryProjectPath: string | undefined;
+  if (config.secondaryProjectPath) {
+    if (fs.existsSync(config.secondaryProjectPath)) {
+      secondaryProjectPath = config.secondaryProjectPath;
+      console.log(`Secondary project path validated: ${secondaryProjectPath}`);
+    } else {
+      console.warn(`Secondary project path does not exist: ${config.secondaryProjectPath}`);
+    }
+  }
+
+  const status: AgentStatus = {
+    id,
+    status: 'idle',
+    projectPath: config.projectPath,
+    secondaryProjectPath,
+    worktreePath,
+    branchName,
+    skills: config.skills,
+    output: [],
+    lastActivity: new Date().toISOString(),
+    ptyId,
+    character: config.character || 'robot',
+    name: config.name || `Agent ${id.slice(0, 4)}`,
+    permissionMode: config.permissionMode || 'normal',
+    effort: config.effort,
+    provider: config.provider || 'claude',
+    model: config.model,
+    localModel: config.localModel,
+    obsidianVaultPaths: config.obsidianVaultPaths || [],
+    // Echelon season fields
+    seasonId: config.seasonId,
+    archetypeId: config.archetypeId,
+    canonName: config.canonName,
+    theme: config.theme,
+    soulPackagePath: config.soulPackagePath,
+  };
+  agents.set(id, status);
+
+  // Save agents to disk
+  saveAgents();
+
+  // Forward PTY output to renderer
+  // Guard: skip if this PTY was replaced (e.g. local provider recreates PTY in agent:start)
+  ptyProcess.onData((data) => {
+    const agent = agents.get(id);
+    if (!agent || agent.ptyId !== ptyId) return;
+
+    agent.output.push(data);
+    agent.lastActivity = new Date().toISOString();
+    agent.statusLine = extractStatusLine(agent.output);
+
+    // Capture Super Agent output for Telegram
+    if (superAgentTelegramTask && isSuperAgent(agent)) {
+      superAgentOutputBuffer.push(data);
+      if (superAgentOutputBuffer.length > 200) {
+        superAgentOutputBuffer = superAgentOutputBuffer.slice(-100);
+      }
+    }
+
+    broadcastToAllWindows('agent:output', {
+      type: 'output',
+      agentId: id,
+      ptyId,
+      data,
+      timestamp: new Date().toISOString(),
+    });
+    scheduleTick();
+  });
+
+  ptyProcess.onExit(({ exitCode }) => {
+    const agent = agents.get(id);
+    // Skip status update if this PTY was replaced by a newer one
+    if (agent && agent.ptyId === ptyId) {
+      console.log(`Agent ${id} PTY exited with code ${exitCode}`);
+      const newStatus = exitCode === 0 ? 'completed' : 'error';
+      agent.status = newStatus;
+      agent.lastActivity = new Date().toISOString();
+      handleStatusChangeNotificationCallback(agent, newStatus);
+      broadcastToAllWindows('agent:complete', {
+        type: 'complete',
+        agentId: id,
+        ptyId,
+        exitCode,
+        timestamp: new Date().toISOString(),
+      });
+    }
+    ptyProcesses.delete(ptyId);
+    scheduleTick();
+  });
+
+  return status;
 }
