@@ -758,6 +758,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
       answer: (seasonId: string, payload: { answer?: string; chosenOptionId?: string }) =>
         ipcRenderer.invoke('season:direction:answer', seasonId, payload),
     },
+    // Two-way Jira sync (17d): import the linked project's issues onto the
+    // season board, and query whether Jira is enabled + linked.
+    jira: {
+      import: (seasonId: string) => ipcRenderer.invoke('season:jira:import', seasonId),
+      status: (seasonId: string) => ipcRenderer.invoke('season:jira:status', seasonId),
+    },
     onUpdated: (callback: (season: any) => void) => {
       const listener = (_: unknown, season: any) => callback(season);
       ipcRenderer.on('season:updated', listener);

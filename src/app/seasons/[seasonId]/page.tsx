@@ -747,9 +747,10 @@ function TicketsTab({ season }: { season: Season }) {
           </span>
         </div>
       )}
-      {/* Season-scoped, lock the board to this season's tickets. */}
+      {/* Season-scoped, lock the board to this season's tickets. Pass the linked
+          Jira project key (17d) so the board can offer a "Sync Jira" action. */}
       <div className="flex-1 min-h-0">
-        <KanbanBoard seasonId={season.id} lockScope />
+        <KanbanBoard seasonId={season.id} lockScope jiraProjectKey={season.jiraProjectKey} />
       </div>
     </div>
   );

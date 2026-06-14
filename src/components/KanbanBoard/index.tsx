@@ -16,7 +16,7 @@ import {
 } from '@dnd-kit/core';
 import { sortableKeyboardCoordinates } from '@dnd-kit/sortable';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Plus, Loader2, RefreshCw, Search, ChevronDown, FolderOpen, Globe, Layers } from 'lucide-react';
+import { Plus, Loader2, RefreshCw, Search, ChevronDown, FolderOpen, Globe, Layers, RefreshCcwDot } from 'lucide-react';
 import { useElectronKanban, useKanbanAgentSync } from '@/hooks/useElectronKanban';
 import { isElectron as checkIsElectron } from '@/hooks/useElectron';
 import type { KanbanTask, KanbanColumn as KanbanColumnType, KanbanTaskCreate, KanbanScope } from '@/types/kanban';
@@ -39,6 +39,12 @@ interface KanbanBoardProps {
   seasonId?: string;
   /** When true (with seasonId), hide the global/season switch and lock to the season. */
   lockScope?: boolean;
+  /**
+   * The season's linked Jira project key (17d). When set (and the board is
+   * season-embedded), a "Sync Jira" button appears in the header that imports
+   * the project's issues onto this board.
+   */
+  jiraProjectKey?: string;
 }
 
 interface SeasonOption {
@@ -46,7 +52,7 @@ interface SeasonOption {
   name: string;
 }
 
-export default function KanbanBoard({ seasonId, lockScope }: KanbanBoardProps = {}) {
+export default function KanbanBoard({ seasonId, lockScope, jiraProjectKey }: KanbanBoardProps = {}) {
   // Scope state. A locked, season-embedded board starts in 'season' scope and
   // cannot be switched; a standalone board defaults to 'all' (global kanban).
   const [scope, setScope] = useState<KanbanScope>(seasonId && lockScope ? 'season' : 'all');
@@ -167,6 +173,57 @@ export default function KanbanBoard({ seasonId, lockScope }: KanbanBoardProps = 
       setTimeout(() => setIsRefreshing(false), 600);
     }
   }, [refresh, isRefreshing]);
+
+  // ── Jira two-way sync (17d) ────────────────────────────────────────────────
+  // Whether Jira is configured + enabled (gates the Sync button's behavior). We
+  // probe once when a Jira project is linked; the button still renders if the
+  // probe is pending so the user can trigger an import (which returns its own
+  // disabled reason if creds are missing).
+  const [jiraEnabled, setJiraEnabled] = useState<boolean | null>(null);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [syncMessage, setSyncMessage] = useState<string | null>(null);
+  const showJiraSync = Boolean(seasonId && jiraProjectKey);
+
+  useEffect(() => {
+    if (!showJiraSync || !checkIsElectron()) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const status = await window.electronAPI?.season?.jira?.status?.(seasonId!);
+        if (!cancelled) setJiraEnabled(Boolean(status?.enabled));
+      } catch (err) {
+        console.error('Failed to query Jira status:', err);
+        if (!cancelled) setJiraEnabled(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [showJiraSync, seasonId]);
+
+  const handleJiraSync = useCallback(async () => {
+    if (!seasonId || isSyncing || !checkIsElectron()) return;
+    setIsSyncing(true);
+    setSyncMessage(null);
+    try {
+      const result = await window.electronAPI?.season?.jira?.import?.(seasonId);
+      if (!result || result.ran === false) {
+        setSyncMessage(result?.error || 'Jira sync is not available.');
+      } else if (result.error) {
+        setSyncMessage(result.error);
+      } else {
+        setSyncMessage(`Imported ${result.imported}, updated ${result.updated}`);
+        // Live kanban:task-created/updated broadcasts refresh the board, but a
+        // manual refresh covers any edge (e.g. first-load timing).
+        await refresh();
+      }
+    } catch (err) {
+      console.error('Jira sync failed:', err);
+      setSyncMessage('Jira sync failed.');
+    } finally {
+      setIsSyncing(false);
+      // Auto-clear the transient result after a few seconds.
+      setTimeout(() => setSyncMessage(null), 6000);
+    }
+  }, [seasonId, isSyncing, refresh]);
 
   // Drag state
   const [activeTask, setActiveTask] = useState<KanbanTask | null>(null);
@@ -514,6 +571,40 @@ export default function KanbanBoard({ seasonId, lockScope }: KanbanBoardProps = 
                   </>
                 )}
               </AnimatePresence>
+            </div>
+          )}
+
+          {/* Jira sync (17d): import the linked project's issues onto this board.
+              Only shown for season-embedded boards with a linked Jira project. */}
+          {showJiraSync && (
+            <div className="flex items-center gap-2">
+              {syncMessage && (
+                <span className="text-xs text-muted-foreground max-w-[14rem] truncate" title={syncMessage}>
+                  {syncMessage}
+                </span>
+              )}
+              {jiraEnabled === false ? (
+                <span
+                  className="text-xs text-muted-foreground/70 italic"
+                  title="Enable Jira and set credentials in Settings to sync"
+                >
+                  Configure Jira in Settings
+                </span>
+              ) : (
+                <button
+                  onClick={handleJiraSync}
+                  disabled={isSyncing}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-secondary border border-border text-muted-foreground hover:text-foreground hover:bg-secondary/80 transition-colors text-sm disabled:opacity-50"
+                  title={`Import issues from JIRA ${jiraProjectKey?.toUpperCase()}`}
+                >
+                  {isSyncing ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <RefreshCcwDot className="w-4 h-4" />
+                  )}
+                  Sync Jira
+                </button>
+              )}
             </div>
           )}
 

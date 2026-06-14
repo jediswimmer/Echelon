@@ -896,6 +896,15 @@ export interface ElectronAPI {
         payload: { answer?: string; chosenOptionId?: string },
       ) => Promise<{ success: boolean; season?: unknown; error?: string }>;
     };
+    // Two-way Jira sync (17d): import the linked project's issues; query status.
+    jira?: {
+      import: (
+        seasonId: string,
+      ) => Promise<{ imported: number; updated: number; ran: boolean; error?: string }>;
+      status: (
+        seasonId: string,
+      ) => Promise<{ enabled: boolean; projectKey?: string; reason?: string }>;
+    };
     [key: string]: unknown;
   };
 

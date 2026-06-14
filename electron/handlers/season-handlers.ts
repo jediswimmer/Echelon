@@ -11,6 +11,7 @@ import {
 import type { SeasonRuntimeDeps } from '../core/season-manager';
 import { readConversation } from '../core/conversation-log';
 import type { ConversationKind } from '../core/conversation-log';
+import { importJiraToBoard, jiraStatusForSeason } from '../services/jira-sync';
 import type { AgentStatus, AgentPermissionMode, AppSettings } from '../types';
 
 export interface SeasonHandlerDependencies {
@@ -167,4 +168,18 @@ export function registerSeasonHandlers(deps: SeasonHandlerDependencies): void {
       }
     },
   );
+
+  // Two-way Jira sync (17d): pull the season's linked Jira project and upsert its
+  // issues as season-scoped kanban tasks (matched by jiraKey). Resilient — the
+  // service never throws; a disabled/unlinked/error case comes back as a clear
+  // result. Live `kanban:task-created/updated` broadcasts refresh the board.
+  ipcMain.handle('season:jira:import', async (_event, seasonId: string) => {
+    return importJiraToBoard(seasonId);
+  });
+
+  // Lightweight gate for the board's Sync button: is Jira enabled + which
+  // project (if any) is linked to this season.
+  ipcMain.handle('season:jira:status', async (_event, seasonId: string) => {
+    return jiraStatusForSeason(seasonId);
+  });
 }

@@ -4,6 +4,7 @@ import * as path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import { KANBAN_FILE, DATA_DIR } from '../constants';
 import { generateTaskFromPrompt } from '../utils/kanban-generate';
+import { pushTaskMove, pushTaskComment } from '../services/jira-sync';
 
 // ============================================
 // Kanban Board IPC handlers
@@ -397,6 +398,16 @@ export function registerKanbanHandlers(dependencies: KanbanHandlerDependencies):
       saveTasks(tasks);
       emitTaskEvent('kanban:task-updated', task);
 
+      // 17d: push the column change to the linked Jira issue (best-effort,
+      // non-blocking). Only fires for season-scoped, Jira-linked tasks; a
+      // Jira/network failure is swallowed inside pushTaskMove and never affects
+      // the local move result.
+      if (task.seasonId && task.jiraKey) {
+        void pushTaskMove(task).catch(err =>
+          console.error('jira-sync: pushTaskMove (kanban:move) failed:', err),
+        );
+      }
+
       return {
         success: true,
         task,
@@ -553,6 +564,16 @@ export function registerKanbanHandlers(dependencies: KanbanHandlerDependencies):
 
       saveTasks(tasks);
       emitTaskEvent('kanban:task-updated', task);
+
+      // 17d: mirror locally-authored comments onto the linked Jira issue
+      // (best-effort, non-blocking). Comments that came FROM Jira (source
+      // 'jira') are NOT pushed back, avoiding an echo loop. A Jira/network
+      // failure is swallowed inside pushTaskComment.
+      if (comment.source === 'local' && task.seasonId && task.jiraKey) {
+        void pushTaskComment(task, { body: comment.body, authorName: comment.authorName }).catch(err =>
+          console.error('jira-sync: pushTaskComment (kanban:comment-add) failed:', err),
+        );
+      }
 
       return { success: true, comment };
     } catch (err) {
