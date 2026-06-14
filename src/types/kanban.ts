@@ -59,6 +59,14 @@ export interface KanbanTask {
   jiraKey?: string;              // Reserved for Jira sync (display only)
   jiraStatus?: string;           // Reserved for Jira sync (display only)
   epicColor?: string;            // Optional grouping color for epics
+
+  // --- Branch-per-Epic + PR-on-completion (17e). Set only on epics/stories. ---
+  branch?: string;               // `echelon-team-factory/<slug>` branch for this epic/story
+  prUrl?: string;                // GitHub PR URL once opened on completion
+  prNumber?: number;             // GitHub PR number
+  prState?: 'open' | 'merged' | 'closed';
+  /** Human-approval gate (seam for #22). `auto-approved` when no human team. */
+  reviewGate?: 'pending-human' | 'auto-approved' | 'approved';
 }
 
 export interface KanbanTaskCreate {

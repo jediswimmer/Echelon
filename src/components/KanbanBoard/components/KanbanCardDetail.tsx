@@ -2,7 +2,20 @@
 
 import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { X, Trash2, Save, Bot, Clock, Plus, MessageSquare, Send, Link2 } from 'lucide-react';
+import {
+  X,
+  Trash2,
+  Save,
+  Bot,
+  Clock,
+  Plus,
+  MessageSquare,
+  Send,
+  Link2,
+  GitBranch,
+  GitPullRequest,
+  UserCheck,
+} from 'lucide-react';
 import type { KanbanTask } from '@/types/kanban';
 import { COLUMN_CONFIG, getLabelColor, ISSUE_TYPE_CONFIG, getIssueType } from '../constants';
 
@@ -45,11 +58,44 @@ export function KanbanCardDetail({ task, parentTitle, onClose, onUpdate, onDelet
   const [isSaving, setIsSaving] = useState(false);
   const [commentInput, setCommentInput] = useState('');
   const [isCommenting, setIsCommenting] = useState(false);
+  const [isOpeningPR, setIsOpeningPR] = useState(false);
+  const [prMessage, setPrMessage] = useState<string | null>(null);
 
   const columnConfig = COLUMN_CONFIG[task.column];
   const issueType = getIssueType(task.issueType);
   const issueConfig = ISSUE_TYPE_CONFIG[issueType];
   const comments = task.comments ?? [];
+
+  // 17e: branch-per-epic + PR-on-completion is only meaningful for epics/stories.
+  const isEpicOrStory = issueType === 'epic' || issueType === 'story';
+  const reviewGateLabel =
+    task.reviewGate === 'pending-human'
+      ? 'Awaiting human review'
+      : task.reviewGate === 'approved'
+        ? 'Approved'
+        : task.reviewGate === 'auto-approved'
+          ? 'Auto-approved (no human team)'
+          : undefined;
+
+  // Manually open the team-factory PR for this epic/story (never auto-merges).
+  const handleOpenPR = async () => {
+    if (!task.seasonId || isOpeningPR) return;
+    setIsOpeningPR(true);
+    setPrMessage(null);
+    try {
+      const api = (window as unknown as { electronAPI?: { season?: { epic?: { openPR?: (s: string, t: string) => Promise<{ opened: boolean; prUrl?: string; reason?: string }> } } } }).electronAPI;
+      const result = await api?.season?.epic?.openPR?.(task.seasonId, task.id);
+      if (result?.opened && result.prUrl) {
+        setPrMessage(`PR opened: ${result.prUrl}`);
+      } else {
+        setPrMessage(result?.reason ?? 'Could not open a PR for this epic.');
+      }
+    } catch (err) {
+      setPrMessage(err instanceof Error ? err.message : 'Failed to open PR.');
+    } finally {
+      setIsOpeningPR(false);
+    }
+  };
 
   const hasChanges =
     title !== task.title ||
@@ -325,6 +371,66 @@ export function KanbanCardDetail({ task, parentTitle, onClose, onUpdate, onDelet
                 )}
               </div>
             </div>
+
+            {/* Release: branch / review gate / PR (17e — epics & stories only) */}
+            {isEpicOrStory && (task.branch || task.reviewGate || task.prUrl || task.seasonId) && (
+              <div className="pt-4 border-t border-border/50">
+                <label className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground uppercase tracking-wider mb-3">
+                  <GitBranch className="w-3.5 h-3.5" />
+                  Release
+                </label>
+                <div className="space-y-2">
+                  {/* Branch */}
+                  {task.branch ? (
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <GitBranch className="w-3.5 h-3.5 shrink-0" />
+                      <span className="font-mono truncate" title={task.branch}>{task.branch}</span>
+                    </div>
+                  ) : (
+                    <p className="text-xs text-muted-foreground/60">No branch yet — created when this epic is started.</p>
+                  )}
+
+                  {/* Review gate */}
+                  {reviewGateLabel && (
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <UserCheck className="w-3.5 h-3.5 shrink-0" />
+                      <span>{reviewGateLabel}</span>
+                    </div>
+                  )}
+
+                  {/* PR link or Open-PR action */}
+                  {task.prUrl ? (
+                    <a
+                      href={task.prUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-2 text-xs text-purple-500 hover:underline"
+                    >
+                      <GitPullRequest className="w-3.5 h-3.5 shrink-0" />
+                      View PR{task.prNumber ? ` #${task.prNumber}` : ''}
+                      {task.prState && task.prState !== 'open' ? ` (${task.prState})` : ''}
+                    </a>
+                  ) : (
+                    task.seasonId && (
+                      <button
+                        type="button"
+                        onClick={handleOpenPR}
+                        disabled={isOpeningPR}
+                        className="inline-flex items-center gap-2 px-3 py-1.5 text-xs rounded-lg bg-purple-500/10 border border-purple-500/30 text-purple-500 hover:bg-purple-500/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        <GitPullRequest className="w-3.5 h-3.5" />
+                        {isOpeningPR ? 'Opening PR…' : 'Open PR'}
+                      </button>
+                    )
+                  )}
+
+                  {/* Open-PR result / skip reason */}
+                  {prMessage && (
+                    <p className="text-[11px] text-muted-foreground/80 break-words">{prMessage}</p>
+                  )}
+                </div>
+              </div>
+            )}
 
             {/* Comments */}
             <div className="pt-4 border-t border-border/50">

@@ -60,6 +60,12 @@ interface KanbanTask {
   jiraKey?: string;
   jiraStatus?: string;
   epicColor?: string;
+  // Branch-per-Epic + PR-on-completion (17e). Set only on epics/stories.
+  branch?: string;
+  prUrl?: string;
+  prNumber?: number;
+  prState?: 'open' | 'merged' | 'closed';
+  reviewGate?: 'pending-human' | 'auto-approved' | 'approved';
 }
 
 interface KanbanTaskCreate {
@@ -406,6 +412,19 @@ export function registerKanbanHandlers(dependencies: KanbanHandlerDependencies):
         void pushTaskMove(task).catch(err =>
           console.error('jira-sync: pushTaskMove (kanban:move) failed:', err),
         );
+      }
+
+      // 17e: when a season task lands in `done`, check whether it completes its
+      // epic and (if so) open a team-factory PR. Fire-and-forget so it never
+      // blocks the move; tryCompleteEpic is internally guarded (idempotent) +
+      // resilient (never throws). Lazy import keeps the kanban-handlers ⇄ git-pr
+      // cycle runtime-safe.
+      if (targetColumn === 'done' && task.seasonId) {
+        const seasonId = task.seasonId;
+        const taskId = task.id;
+        void import('../services/git-pr')
+          .then(({ tryCompleteEpic }) => tryCompleteEpic(seasonId, taskId))
+          .catch(err => console.error('git-pr: tryCompleteEpic (kanban:move) failed:', err));
       }
 
       return {

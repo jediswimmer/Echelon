@@ -110,6 +110,13 @@ export interface Season {
    * Present + `status: 'open'` ⇒ the control board renders a direction card.
    */
   directionRequest?: SeasonDirectionRequest;
+  /**
+   * Reserved seam for the human hybrid dev team (#22). When `seats` is non-empty,
+   * epic-completion PRs are gated `pending-human` instead of `auto-approved`
+   * (see `evaluateReviewGate` in `electron/services/git-pr.ts`). Absent/empty ⇒
+   * no human team ⇒ auto-approved. #22 will flesh out the seat shape.
+   */
+  humanTeam?: { seats?: unknown[] };
 }
 
 export interface Character extends AgentStatus {

@@ -14,6 +14,9 @@ import {
   Wrench,
   Play,
   Terminal,
+  GitBranch,
+  GitPullRequest,
+  UserCheck,
 } from 'lucide-react';
 import type { KanbanTask, KanbanColumn } from '@/types/kanban';
 import { getLabelColor, ISSUE_TYPE_CONFIG, getIssueType } from '../constants';
@@ -174,6 +177,56 @@ export function KanbanCard({ task, onEdit, onDelete, onStart, onOpenTerminal, pa
           ↳ in {parentTitle}
         </p>
       )}
+
+      {/* Branch / review-gate / PR chips (17e — epics & stories only) */}
+      {(issueType === 'epic' || issueType === 'story') &&
+        (task.branch || task.prUrl || task.reviewGate) && (
+          <div className="flex flex-wrap items-center gap-1.5 mb-2">
+            {task.branch && (
+              <span
+                className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-secondary border border-border text-muted-foreground font-mono max-w-full"
+                title={task.branch}
+              >
+                <GitBranch className="w-3 h-3 shrink-0" />
+                <span className="truncate">{task.branch.replace('echelon-team-factory/', '')}</span>
+              </span>
+            )}
+            {task.prUrl ? (
+              <a
+                href={task.prUrl}
+                target="_blank"
+                rel="noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-purple-500/10 border border-purple-500/30 text-purple-500 hover:bg-purple-500/20 transition-colors"
+                title={`PR ${task.prState ?? 'open'}: ${task.prUrl}`}
+              >
+                <GitPullRequest className="w-3 h-3 shrink-0" />
+                {task.prNumber ? `#${task.prNumber}` : 'PR'}
+                {task.prState && task.prState !== 'open' ? ` (${task.prState})` : ''}
+              </a>
+            ) : (
+              task.reviewGate && (
+                <span
+                  className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-secondary border border-border text-muted-foreground"
+                  title={
+                    task.reviewGate === 'pending-human'
+                      ? 'Awaiting human review'
+                      : task.reviewGate === 'approved'
+                        ? 'Approved by a human reviewer'
+                        : 'Auto-approved (no human team)'
+                  }
+                >
+                  <UserCheck className="w-3 h-3 shrink-0" />
+                  {task.reviewGate === 'pending-human'
+                    ? 'pending'
+                    : task.reviewGate === 'approved'
+                      ? 'approved'
+                      : 'auto'}
+                </span>
+              )
+            )}
+          </div>
+        )}
 
       {/* Description */}
       {task.description && (

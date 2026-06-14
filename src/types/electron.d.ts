@@ -59,6 +59,12 @@ export interface KanbanTaskElectron {
   jiraKey?: string;
   jiraStatus?: string;
   epicColor?: string;
+  // Branch-per-Epic + PR-on-completion (17e). Set only on epics/stories.
+  branch?: string;
+  prUrl?: string;
+  prNumber?: number;
+  prState?: 'open' | 'merged' | 'closed';
+  reviewGate?: 'pending-human' | 'auto-approved' | 'approved';
 }
 
 // Season direction request (17c) — brownfield "needs your direction" prompt.
@@ -904,6 +910,21 @@ export interface ElectronAPI {
       status: (
         seasonId: string,
       ) => Promise<{ enabled: boolean; projectKey?: string; reason?: string }>;
+    };
+    // Branch-per-Epic + PR-on-completion (17e): open the team-factory PR for an
+    // epic/story from the board. Never auto-merges.
+    epic?: {
+      openPR: (
+        seasonId: string,
+        epicTaskId: string,
+      ) => Promise<{
+        opened: boolean;
+        prUrl?: string;
+        prNumber?: number;
+        branch?: string;
+        reviewGate?: 'pending-human' | 'auto-approved' | 'approved';
+        reason?: string;
+      }>;
     };
     [key: string]: unknown;
   };

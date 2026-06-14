@@ -764,6 +764,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
       import: (seasonId: string) => ipcRenderer.invoke('season:jira:import', seasonId),
       status: (seasonId: string) => ipcRenderer.invoke('season:jira:status', seasonId),
     },
+    // Branch-per-Epic + PR-on-completion (17e): manually open the team-factory
+    // PR for a completed epic/story from the board.
+    epic: {
+      openPR: (seasonId: string, epicTaskId: string) =>
+        ipcRenderer.invoke('season:epic:open-pr', seasonId, epicTaskId),
+    },
     onUpdated: (callback: (season: any) => void) => {
       const listener = (_: unknown, season: any) => callback(season);
       ipcRenderer.on('season:updated', listener);

@@ -12,6 +12,7 @@ import type { SeasonRuntimeDeps } from '../core/season-manager';
 import { readConversation } from '../core/conversation-log';
 import type { ConversationKind } from '../core/conversation-log';
 import { importJiraToBoard, jiraStatusForSeason } from '../services/jira-sync';
+import { forceOpenEpicPR } from '../services/git-pr';
 import type { AgentStatus, AgentPermissionMode, AppSettings } from '../types';
 
 export interface SeasonHandlerDependencies {
@@ -181,5 +182,13 @@ export function registerSeasonHandlers(deps: SeasonHandlerDependencies): void {
   // project (if any) is linked to this season.
   ipcMain.handle('season:jira:status', async (_event, seasonId: string) => {
     return jiraStatusForSeason(seasonId);
+  });
+
+  // Branch-per-Epic + PR-on-completion (17e): manually open (or resolve) the
+  // team-factory PR for a specific epic/story from the UI. Resilient — the
+  // service never throws; a non-GitHub / no-gh / nothing-to-review case comes
+  // back as `{ opened: false, reason }`. Never auto-merges.
+  ipcMain.handle('season:epic:open-pr', async (_event, seasonId: string, epicTaskId: string) => {
+    return forceOpenEpicPR(seasonId, epicTaskId);
   });
 }

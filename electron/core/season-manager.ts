@@ -754,13 +754,44 @@ export async function answerSeasonDirection(
     : undefined;
 
   // Lazy import to avoid a static cycle (kanban-handlers ← grooming ← season-manager).
-  const { loadTasks, moveTaskToPlanned } = await import('../handlers/kanban-handlers');
+  const { loadTasks, moveTaskToPlanned, saveTasks, emitTaskEvent } = await import('../handlers/kanban-handlers');
   const { appendConversationEntry } = await import('./conversation-log');
 
   let startedTitle: string | undefined;
 
   if (chosen) {
     startedTitle = chosen.title;
+
+    // 17e: create the `echelon-team-factory/<slug>` branch for the chosen
+    // epic/story and record it on that task. Eager (here, at direction time) so
+    // the branch exists from the moment work starts. Fire-and-forget +
+    // non-destructive (a bare `git branch`, never a checkout) + resilient
+    // (createEpicBranch never throws). The branch is also created lazily in
+    // tryCompleteEpic if this path didn't run (e.g. greenfield epics).
+    void (async () => {
+      try {
+        const { createEpicBranch } = await import('../services/git-pr');
+        const branch = await createEpicBranch(season.workspacePath, chosen.title);
+        if (!branch) return;
+        const tasks = loadTasks();
+        const idx = tasks.findIndex(t => t.id === chosen.id);
+        if (idx === -1) return;
+        if (tasks[idx].branch === branch) return; // already recorded
+        tasks[idx].branch = branch;
+        tasks[idx].updatedAt = new Date().toISOString();
+        saveTasks(tasks);
+        emitTaskEvent('kanban:task-updated', tasks[idx]);
+        appendConversationEntry(seasonId, {
+          agentId: 'system',
+          canonName: 'Release',
+          kind: 'system',
+          text: `Created branch "${branch}" for ${chosen.kind} "${chosen.title}".`,
+        });
+      } catch (err) {
+        console.error(`answerSeasonDirection: failed to create epic branch for ${chosen.id}:`, err);
+      }
+    })();
+
     const tasks = loadTasks().filter(t => t.seasonId === seasonId);
 
     // Collect the leaf tasks to start:
