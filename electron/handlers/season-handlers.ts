@@ -8,7 +8,7 @@ import {
   restoreSeason,
 } from '../core/season-manager';
 import type { SeasonRuntimeDeps } from '../core/season-manager';
-import type { AgentStatus, AppSettings } from '../types';
+import type { AgentStatus, AgentPermissionMode, AppSettings } from '../types';
 
 export interface SeasonHandlerDependencies {
   getMainWindow: () => BrowserWindow | null;
@@ -55,12 +55,19 @@ export function registerSeasonHandlers(deps: SeasonHandlerDependencies): void {
   });
 
   // Spawn a new season — casts a live team and launches the agents.
+  //
+  // Two roster paths:
+  //   • Default (PRD chat): leave `rosterEntries` empty + supply `prd`; the
+  //     roster is AUTO-COMPOSED from the PRD inside spawnSeason.
+  //   • Advanced override: supply `rosterEntries` explicitly.
+  // `permissionMode` is the user-selected season posture, applied to every agent.
   ipcMain.handle('season:spawn', async (_event, config: {
     id: string;
     name: string;
     theme: string;
     prd?: string;
-    rosterEntries: Array<{
+    permissionMode?: AgentPermissionMode;
+    rosterEntries?: Array<{
       archetype: string;
       character: string;
       capabilities: string[];

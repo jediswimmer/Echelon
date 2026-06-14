@@ -12,8 +12,10 @@ import { assignConvener, setConvenerAgentId } from './convener-manager';
 import { getProvider } from '../providers';
 import { writeProgrammaticInput } from './pty-manager';
 import { buildFullPath } from '../utils/path-builder';
+import { composeRosterFromPrd } from './composer';
+import { trustClaudeProjects } from './claude-trust';
 import type { Season, SeasonStatus } from '../types/echelon';
-import type { AgentStatus, AppSettings } from '../types';
+import type { AgentStatus, AgentPermissionMode, AppSettings } from '../types';
 import type { RosterManifestData, RosterCharacterEntry } from './roster-manager';
 
 const SEASONS_DIR = path.join(DATA_DIR, 'seasons');
@@ -108,8 +110,21 @@ export async function spawnSeason(
     id: string;
     name: string;
     theme: string;
-    rosterEntries: RosterCharacterEntry[];
+    /**
+     * Explicit roster. When omitted/empty AND a `prd` is supplied, the roster
+     * is auto-composed from the PRD via {@link composeRosterFromPrd}. The UI's
+     * default path leaves this empty and relies on auto-compose; the "Advanced:
+     * edit roster" override supplies it explicitly.
+     */
+    rosterEntries?: RosterCharacterEntry[];
     prd?: string;
+    /**
+     * Per-agent permission posture for the whole season, chosen by the user at
+     * kickoff. Applied to every cast agent's `permissionMode`, overriding the
+     * archetype-derived default. `undefined` falls back to the prior behavior
+     * (autonomy-derived).
+     */
+    permissionMode?: AgentPermissionMode;
   },
   deps: SeasonRuntimeDeps
 ): Promise<Season> {
@@ -123,6 +138,31 @@ export async function spawnSeason(
 
   // The season workspace must be a git repo for worktree-isolated agents.
   ensureGitRepo(workspacePath);
+
+  // Pre-trust the Echelon-owned workspace so Claude's per-folder trust dialog
+  // never appears for season agents (worktree paths are pre-trusted below, once
+  // each agent's worktree exists). Targeted: Echelon dirs only.
+  trustClaudeProjects([workspacePath]);
+
+  // ── Resolve the roster: explicit entries, else auto-compose from the PRD ──
+  let rosterEntries: RosterCharacterEntry[] = config.rosterEntries ?? [];
+  let composedTier: RosterManifestData['tier'] = 'medium';
+  if (rosterEntries.length === 0 && config.prd && config.prd.trim()) {
+    const composed = composeRosterFromPrd(config.prd, config.theme);
+    rosterEntries = composed.entries;
+    composedTier = composed.tier;
+    console.log(
+      `Season ${config.id}: auto-composed ${rosterEntries.length} roster entries from PRD (tier=${composed.tier}` +
+        (composed.dropped.length ? `, dropped=${composed.dropped.join(',')}` : '') +
+        ')'
+    );
+  }
+
+  if (rosterEntries.length === 0) {
+    throw new Error(
+      'Season has no roster: provide a PRD to auto-compose, or supply rosterEntries explicitly.'
+    );
+  }
 
   const season: Season = {
     id: config.id,
@@ -140,8 +180,8 @@ export async function spawnSeason(
     season_id: config.id,
     season_slug: config.id,
     theme: config.theme,
-    tier: 'medium',
-    roster: config.rosterEntries,
+    tier: composedTier,
+    roster: rosterEntries,
   };
   saveRosterManifest(rosterManifestPath, manifestData);
 
@@ -152,7 +192,7 @@ export async function spawnSeason(
   // ── Cast the team ────────────────────────────────────────────────
   const cast: CastMember[] = [];
 
-  for (const entry of config.rosterEntries) {
+  for (const entry of rosterEntries) {
     try {
       const cfg = loadAgentConfig(entry.archetype);
       const slug = entry.character || cfg.character;
@@ -174,6 +214,11 @@ export async function spawnSeason(
       const systemPromptPath = path.join(seasonCharacterDir, 'system-prompt.md');
       assembleSoulPromptFile(seasonCharacterDir, cfg.assemblyOrder, systemPromptPath);
 
+      // Per-agent permission posture: the user-selected season posture wins;
+      // otherwise fall back to the archetype-derived default (prior behavior).
+      const permissionMode: AgentPermissionMode =
+        config.permissionMode ?? (cfg.autonomy === 'autonomous' ? 'auto' : 'normal');
+
       // Cast the agent on its recommended model, worktree-isolated.
       const agent = await createAgent(
         {
@@ -182,7 +227,7 @@ export async function spawnSeason(
           worktree: { enabled: true, branchName: `season/${config.id}/${slug}` },
           model: mapCatalogModelToProviderModel(cfg.modelPrimary),
           skills: cfg.skills,
-          permissionMode: cfg.autonomy === 'autonomous' ? 'auto' : 'normal',
+          permissionMode,
           seasonId: config.id,
           archetypeId: entry.archetype,
           canonName: slug,
@@ -192,6 +237,11 @@ export async function spawnSeason(
         deps.getAppSettings,
         deps.handleStatusChangeNotification
       );
+
+      // Pre-trust this agent's actual working dir (the worktree) so Claude's
+      // per-folder trust dialog never blocks the launch — regardless of the
+      // chosen permission posture. Echelon-owned worktree path only.
+      trustClaudeProjects([agent.worktreePath, agent.projectPath]);
 
       addCharacterToSeason(config.id, agent.id);
       cast.push({ agent, slug, isConvener: false });

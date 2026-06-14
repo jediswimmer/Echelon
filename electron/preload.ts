@@ -719,7 +719,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
       name: string;
       theme: string;
       prd?: string;
-      rosterEntries: Array<{ archetype: string; character: string; capabilities: string[] }>;
+      /** Season permission posture: 'normal' | 'auto' | 'bypass'. */
+      permissionMode?: 'normal' | 'auto' | 'bypass';
+      /** Optional explicit roster; omitted/empty ⇒ auto-compose from `prd`. */
+      rosterEntries?: Array<{ archetype: string; character: string; capabilities: string[] }>;
     }) => ipcRenderer.invoke('season:spawn', config),
     archive: (id: string) => ipcRenderer.invoke('season:archive', id),
     restore: (id: string) => ipcRenderer.invoke('season:restore', id),

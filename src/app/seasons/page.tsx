@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Plus, RefreshCw, X, Loader2 } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { Plus, RefreshCw, X, Loader2, ChevronDown, ChevronRight, ShieldCheck, ShieldAlert, ShieldOff } from 'lucide-react';
 import SeasonCard from '@/components/Echelon/SeasonCard';
 
 interface Season {
@@ -21,14 +22,47 @@ interface RosterEntryDraft {
 
 type FilterTab = 'all' | 'active' | 'archived';
 
+/** Season-wide permission posture, chosen at kickoff. Maps to permissionMode. */
+type PermissionPosture = 'normal' | 'auto' | 'bypass';
+
+interface PostureOption {
+  value: PermissionPosture;
+  label: string;
+  caption: string;
+  Icon: typeof ShieldCheck;
+}
+
+const PERMISSION_OPTIONS: PostureOption[] = [
+  {
+    value: 'normal',
+    label: 'Approve each action',
+    caption: 'Agents pause for your approval before every tool action.',
+    Icon: ShieldCheck,
+  },
+  {
+    value: 'auto',
+    label: 'Approve once at kickoff',
+    caption: 'Agents accept edits for this season after a single kickoff approval.',
+    Icon: ShieldAlert,
+  },
+  {
+    value: 'bypass',
+    label: 'Autonomous for this season',
+    caption:
+      'Agents act without per-action approval; review gates + isolated worktrees are the safety layer.',
+    Icon: ShieldOff,
+  },
+];
+
 /**
- * Default cast for a quick spawn. Each archetype's `agent.config.yaml` carries
- * its own recommended model + skills; the renderer only needs the
- * archetype + the theme character slug. These characters exist under
+ * Advanced-override default roster. The DEFAULT spawn path is the PRD chat,
+ * which auto-composes the roster; this seed is only shown when a power user
+ * opens "Advanced: edit roster". Characters exist under
  * src/team-factory/themes/tbbt/characters/.
  */
 const DEFAULT_TBBT_ROSTER: RosterEntryDraft[] = [
   { archetype: 'counselor-convener', character: 'stephen-hawking' },
+  { archetype: 'ingestion-pm', character: 'penny' },
   { archetype: 'user-handler', character: 'leonard-hofstadter' },
   { archetype: 'principal-architect', character: 'sheldon-cooper' },
   { archetype: 'backend-engineer', character: 'stuart-bloom' },
@@ -39,6 +73,7 @@ function slugify(s: string): string {
 }
 
 export default function SeasonsPage() {
+  const router = useRouter();
   const [seasons, setSeasons] = useState<Season[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<FilterTab>('all');
@@ -123,9 +158,11 @@ export default function SeasonsPage() {
       {showNewSeason && (
         <NewSeasonModal
           onClose={() => setShowNewSeason(false)}
-          onSpawned={() => {
+          onSpawned={(seasonId) => {
             setShowNewSeason(false);
             fetchSeasons();
+            // Land the user on the season control board.
+            router.push(`/seasons/${seasonId}`);
           }}
         />
       )}
@@ -177,16 +214,25 @@ export default function SeasonsPage() {
 
 /* ─── New Season Modal ───────────────────────────────────────── */
 
+/**
+ * The kickoff flow. DEFAULT path: describe the work (PRD chat) → the team is
+ * AUTO-COMPOSED on spawn. The user picks the season permission posture. An
+ * "Advanced: edit roster" override reveals the legacy archetype→character
+ * editor for power users; when it has rows, those are sent verbatim and the
+ * composer is bypassed.
+ */
 function NewSeasonModal({
   onClose,
   onSpawned,
 }: {
   onClose: () => void;
-  onSpawned: () => void;
+  onSpawned: (seasonId: string) => void;
 }) {
   const [name, setName] = useState('');
   const [theme, setTheme] = useState('tbbt');
   const [prd, setPrd] = useState('');
+  const [posture, setPosture] = useState<PermissionPosture>('normal');
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const [roster, setRoster] = useState<RosterEntryDraft[]>(DEFAULT_TBBT_ROSTER);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -199,15 +245,23 @@ function NewSeasonModal({
 
   const handleSubmit = async () => {
     setError(null);
-    const cleanRoster = roster
-      .map(r => ({ archetype: r.archetype.trim(), character: r.character.trim() }))
-      .filter(r => r.archetype && r.character);
 
-    if (!name.trim()) { setError('Season name is required.'); return; }
+    if (!name.trim()) { setName(name); setError('Season name is required.'); return; }
     if (!theme.trim()) { setError('Theme is required.'); return; }
-    if (cleanRoster.length === 0) { setError('Add at least one roster entry (archetype + character).'); return; }
 
-    const api = (window as unknown as { electronAPI?: { season?: { spawn: (c: unknown) => Promise<{ success: boolean; error?: string }> } } }).electronAPI;
+    // Advanced override: explicit roster wins. Otherwise the PRD auto-composes.
+    const cleanRoster = showAdvanced
+      ? roster
+          .map(r => ({ archetype: r.archetype.trim(), character: r.character.trim() }))
+          .filter(r => r.archetype && r.character)
+      : [];
+
+    if (cleanRoster.length === 0 && !prd.trim()) {
+      setError('Describe what this team should build so the roster can be composed (or open Advanced to set one manually).');
+      return;
+    }
+
+    const api = (window as unknown as { electronAPI?: { season?: { spawn: (c: unknown) => Promise<{ success: boolean; error?: string; season?: { id: string } }> } } }).electronAPI;
     if (!api?.season) { setError('Season API unavailable (not running in Electron).'); return; }
 
     setSubmitting(true);
@@ -218,14 +272,18 @@ function NewSeasonModal({
         name: name.trim(),
         theme: theme.trim(),
         prd: prd.trim() || undefined,
-        rosterEntries: cleanRoster.map(r => ({ ...r, capabilities: [] })),
+        permissionMode: posture,
+        // Only send a roster when Advanced is on and populated; empty ⇒ auto-compose.
+        rosterEntries: cleanRoster.length > 0
+          ? cleanRoster.map(r => ({ ...r, capabilities: [] }))
+          : undefined,
       });
       if (!result?.success) {
         setError(result?.error || 'Failed to spawn season.');
         setSubmitting(false);
         return;
       }
-      onSpawned();
+      onSpawned(result.season?.id || id);
     } catch (err) {
       setError(String(err));
       setSubmitting(false);
@@ -235,14 +293,14 @@ function NewSeasonModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
       <div className="bg-card border border-border rounded-lg w-full max-w-2xl max-h-[85vh] overflow-y-auto shadow-xl">
-        <div className="flex items-center justify-between p-4 border-b border-border sticky top-0 bg-card">
+        <div className="flex items-center justify-between p-4 border-b border-border sticky top-0 bg-card z-10">
           <h2 className="text-lg font-semibold text-foreground">New Season</h2>
           <button onClick={onClose} className="p-1 text-muted-foreground hover:text-foreground rounded">
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        <div className="p-4 space-y-4">
+        <div className="p-4 space-y-5">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-medium text-muted-foreground mb-1">Season Name</label>
@@ -264,57 +322,117 @@ function NewSeasonModal({
             </div>
           </div>
 
+          {/* PRD chat — the default path; auto-composes the team on spawn. */}
           <div>
             <label className="block text-xs font-medium text-muted-foreground mb-1">
-              PRD / Brief (handed to the convener)
+              Describe what this team should build
             </label>
             <textarea
               value={prd}
               onChange={e => setPrd(e.target.value)}
-              rows={5}
-              placeholder="Describe what this team should build…"
+              rows={6}
+              placeholder="Paste a PRD/BRD or just describe it in plain language. e.g. &quot;Build an iOS + web expense app with Postgres, Stripe billing, and SOC 2 compliance. Goal: launch an MVP in Q3…&quot;"
               className="w-full px-3 py-2 text-sm bg-background border border-border rounded-lg text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-primary resize-y"
             />
+            <p className="text-[11px] text-muted-foreground/70 mt-1.5">
+              On spawn, Echelon reads this and auto-composes a tier-appropriate roster (always including
+              the convener, ingestion PM, and user handler). The convener receives the full brief and
+              coordinates the team.
+            </p>
           </div>
 
+          {/* Permission posture — the user sets the season's authority level. */}
           <div>
-            <div className="flex items-center justify-between mb-2">
-              <label className="block text-xs font-medium text-muted-foreground">
-                Roster (archetype → character)
-              </label>
-              <button onClick={addRow} className="text-xs text-primary hover:underline flex items-center gap-1">
-                <Plus className="w-3 h-3" /> Add
-              </button>
-            </div>
+            <label className="block text-xs font-medium text-muted-foreground mb-2">
+              Permission posture for this season
+            </label>
             <div className="space-y-2">
-              {roster.map((row, idx) => (
-                <div key={idx} className="flex items-center gap-2">
-                  <input
-                    value={row.archetype}
-                    onChange={e => updateRow(idx, 'archetype', e.target.value)}
-                    placeholder="archetype (e.g. backend-engineer)"
-                    className="flex-1 px-2 py-1.5 text-xs font-mono bg-background border border-border rounded text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-primary"
-                  />
-                  <input
-                    value={row.character}
-                    onChange={e => updateRow(idx, 'character', e.target.value)}
-                    placeholder="character (e.g. stuart-bloom)"
-                    className="flex-1 px-2 py-1.5 text-xs font-mono bg-background border border-border rounded text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-primary"
-                  />
+              {PERMISSION_OPTIONS.map(opt => {
+                const selected = posture === opt.value;
+                return (
                   <button
-                    onClick={() => removeRow(idx)}
-                    className="p-1 text-muted-foreground hover:text-red-500 rounded"
-                    title="Remove"
+                    key={opt.value}
+                    type="button"
+                    onClick={() => setPosture(opt.value)}
+                    className={`w-full text-left flex items-start gap-3 px-3 py-2.5 rounded-lg border transition-colors ${
+                      selected
+                        ? 'border-primary bg-primary/5'
+                        : 'border-border bg-background hover:border-primary/40'
+                    }`}
                   >
-                    <X className="w-4 h-4" />
+                    <opt.Icon
+                      className={`w-4 h-4 mt-0.5 shrink-0 ${
+                        opt.value === 'bypass'
+                          ? selected ? 'text-amber-500' : 'text-amber-500/70'
+                          : selected ? 'text-primary' : 'text-muted-foreground'
+                      }`}
+                    />
+                    <span className="min-w-0">
+                      <span className="block text-sm font-medium text-foreground">{opt.label}</span>
+                      <span className={`block text-[11px] mt-0.5 ${opt.value === 'bypass' ? 'text-amber-500/90' : 'text-muted-foreground'}`}>
+                        {opt.caption}
+                      </span>
+                    </span>
+                    <span className={`ml-auto mt-0.5 w-3.5 h-3.5 rounded-full border shrink-0 ${selected ? 'border-primary bg-primary' : 'border-muted-foreground/40'}`} />
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Advanced: edit roster override (collapsed by default). */}
+          <div className="border-t border-border pt-3">
+            <button
+              type="button"
+              onClick={() => setShowAdvanced(v => !v)}
+              className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
+            >
+              {showAdvanced ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+              Advanced: edit roster
+              {showAdvanced && <span className="text-[10px] text-amber-500/80">(overrides auto-compose)</span>}
+            </button>
+
+            {showAdvanced && (
+              <div className="mt-3">
+                <div className="flex items-center justify-between mb-2">
+                  <label className="block text-xs font-medium text-muted-foreground">
+                    Roster (archetype → character)
+                  </label>
+                  <button onClick={addRow} className="text-xs text-primary hover:underline flex items-center gap-1">
+                    <Plus className="w-3 h-3" /> Add
                   </button>
                 </div>
-              ))}
-            </div>
-            <p className="text-[11px] text-muted-foreground/70 mt-2">
-              The convener (first matching roster slot) receives the PRD and coordinates the team. Each
-              archetype launches on its recommended model with its soul package injected.
-            </p>
+                <div className="space-y-2">
+                  {roster.map((row, idx) => (
+                    <div key={idx} className="flex items-center gap-2">
+                      <input
+                        value={row.archetype}
+                        onChange={e => updateRow(idx, 'archetype', e.target.value)}
+                        placeholder="archetype (e.g. backend-engineer)"
+                        className="flex-1 px-2 py-1.5 text-xs font-mono bg-background border border-border rounded text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-primary"
+                      />
+                      <input
+                        value={row.character}
+                        onChange={e => updateRow(idx, 'character', e.target.value)}
+                        placeholder="character (e.g. stuart-bloom)"
+                        className="flex-1 px-2 py-1.5 text-xs font-mono bg-background border border-border rounded text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-primary"
+                      />
+                      <button
+                        onClick={() => removeRow(idx)}
+                        className="p-1 text-muted-foreground hover:text-red-500 rounded"
+                        title="Remove"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                <p className="text-[11px] text-muted-foreground/70 mt-2">
+                  When this roster has entries, it is used verbatim and the PRD auto-composer is skipped.
+                  Each archetype launches on its recommended model with its soul package injected.
+                </p>
+              </div>
+            )}
           </div>
 
           {error && (
@@ -338,7 +456,7 @@ function NewSeasonModal({
             className="flex items-center gap-2 px-4 py-2 text-sm font-medium bg-foreground text-background rounded-lg hover:opacity-90 disabled:opacity-50"
           >
             {submitting && <Loader2 className="w-4 h-4 animate-spin" />}
-            {submitting ? 'Spawning…' : 'Spawn Season'}
+            {submitting ? 'Composing & spawning…' : 'Spawn Season'}
           </button>
         </div>
       </div>

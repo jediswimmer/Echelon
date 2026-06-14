@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { ArrowLeft, Users, Shield, Settings, Archive, RotateCcw } from 'lucide-react';
+import { ArrowLeft, Users, Shield, Settings, Archive, RotateCcw, MessagesSquare, KanbanSquare } from 'lucide-react';
 import ThemeBadge from '@/components/Echelon/ThemeBadge';
 import Link from 'next/link';
 
@@ -18,7 +18,7 @@ interface Season {
   rosterManifestPath: string;
 }
 
-type Tab = 'roster' | 'gates' | 'settings';
+type Tab = 'cast' | 'conversation' | 'tickets' | 'gates' | 'settings';
 
 export default function SeasonDetailPage() {
   const params = useParams();
@@ -27,7 +27,7 @@ export default function SeasonDetailPage() {
 
   const [season, setSeason] = useState<Season | null>(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<Tab>('roster');
+  const [activeTab, setActiveTab] = useState<Tab>('cast');
   const [actionLoading, setActionLoading] = useState(false);
 
   const api = typeof window !== 'undefined'
@@ -112,7 +112,9 @@ export default function SeasonDetailPage() {
   });
 
   const tabs: { key: Tab; label: string; icon: typeof Users }[] = [
-    { key: 'roster', label: 'Roster', icon: Users },
+    { key: 'cast', label: 'Cast', icon: Users },
+    { key: 'conversation', label: 'Conversation log', icon: MessagesSquare },
+    { key: 'tickets', label: 'Tickets', icon: KanbanSquare },
     { key: 'gates', label: 'Review Gates', icon: Shield },
     { key: 'settings', label: 'Settings', icon: Settings },
   ];
@@ -183,7 +185,9 @@ export default function SeasonDetailPage() {
 
       {/* Tab content */}
       <div className="flex-1 min-h-0 overflow-y-auto pb-4">
-        {activeTab === 'roster' && <RosterTab season={season} />}
+        {activeTab === 'cast' && <CastTab season={season} />}
+        {activeTab === 'conversation' && <ConversationLogTab />}
+        {activeTab === 'tickets' && <TicketsTab />}
         {activeTab === 'gates' && <GatesTab season={season} />}
         {activeTab === 'settings' && <SettingsTab season={season} />}
       </div>
@@ -191,7 +195,7 @@ export default function SeasonDetailPage() {
   );
 }
 
-/* ─── Roster Tab ─────────────────────────────────────────────── */
+/* ─── Cast Tab (control board) ───────────────────────────────── */
 
 interface CastAgent {
   id: string;
@@ -199,6 +203,8 @@ interface CastAgent {
   canonName?: string;
   archetypeId?: string;
   status: string;
+  model?: string;
+  permissionMode?: 'normal' | 'auto' | 'bypass';
   output?: string[];
 }
 
@@ -208,7 +214,17 @@ function stripAnsi(s: string): string {
   return s.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '').replace(/\x1b\][^\x07]*\x07/g, '');
 }
 
-function RosterTab({ season }: { season: Season }) {
+/** Human label for a season permission posture. */
+function postureLabel(mode?: string): string {
+  switch (mode) {
+    case 'bypass': return 'Autonomous';
+    case 'auto': return 'Auto-approve';
+    case 'normal': return 'Approve each';
+    default: return '—';
+  }
+}
+
+function CastTab({ season }: { season: Season }) {
   const [agents, setAgents] = useState<Record<string, CastAgent>>({});
   // Per-agent rolling output buffer (live PTY stream).
   const outputs = useRef<Record<string, string>>({});
@@ -269,8 +285,8 @@ function RosterTab({ season }: { season: Season }) {
     return (
       <div className="flex flex-col items-center justify-center h-48 text-muted-foreground">
         <Users className="w-8 h-8 mb-2 opacity-50" />
-        <p className="text-sm">No characters in this season</p>
-        <p className="text-xs mt-1">Characters are cast when the season is spawned</p>
+        <p className="text-sm">No cast members in this season</p>
+        <p className="text-xs mt-1">The team is auto-composed and cast when the season is spawned</p>
       </div>
     );
   }
@@ -311,12 +327,47 @@ function RosterTab({ season }: { season: Season }) {
                 <span className="text-xs text-muted-foreground capitalize">{agent?.status || 'idle'}</span>
               </div>
             </div>
+            {/* Model + posture chips */}
+            <div className="flex items-center flex-wrap gap-1.5 mb-2">
+              {agent?.model && (
+                <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-secondary text-muted-foreground border border-border">
+                  {agent.model}
+                </span>
+              )}
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-secondary text-muted-foreground border border-border">
+                {postureLabel(agent?.permissionMode)}
+              </span>
+            </div>
             <pre className="text-[10px] leading-relaxed font-mono bg-background/60 border border-border rounded p-2 h-32 overflow-y-auto whitespace-pre-wrap text-muted-foreground">
               {tail || 'Waiting for output…'}
             </pre>
           </div>
         );
       })}
+    </div>
+  );
+}
+
+/* ─── Conversation Log Tab (next build placeholder) ──────────── */
+
+function ConversationLogTab() {
+  return (
+    <div className="flex flex-col items-center justify-center h-48 text-muted-foreground">
+      <MessagesSquare className="w-8 h-8 mb-2 opacity-50" />
+      <p className="text-sm">Conversation log</p>
+      <p className="text-xs mt-1">Agent crosstalk + convener coordination stream lands in the next build</p>
+    </div>
+  );
+}
+
+/* ─── Tickets Tab (next build placeholder) ───────────────────── */
+
+function TicketsTab() {
+  return (
+    <div className="flex flex-col items-center justify-center h-48 text-muted-foreground">
+      <KanbanSquare className="w-8 h-8 mb-2 opacity-50" />
+      <p className="text-sm">Tickets</p>
+      <p className="text-xs mt-1">The Jira-style kanban of season tasks lands in the next build</p>
     </div>
   );
 }
