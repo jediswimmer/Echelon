@@ -1,6 +1,49 @@
 # capabilities/access-matrix.yaml
 # RBAC matrix: archetype → scoped shared-skills
-# Format: <skill>:<scope> where scope is read | write | admin | execute
+# Format: <skill>:<scope> where scope is read | write | admin | execute | approve |
+#         reject | escalate | rate | override | onboard
+# Coverage: every one of the 70 archetypes under archetypes/ has exactly one row
+#           here (advisory-board-sme is represented by the _advisory_board block).
+#
+# ---------------------------------------------------------------------------
+# ACCEPTED SCOPE VOCABULARY
+# The authoritative set of capability scopes any archetype row may reference.
+# A scope used in an agent.config.yaml MUST appear here before it is granted.
+# ---------------------------------------------------------------------------
+# Engineering / delivery core:
+#   source-control:read | source-control:write | source-control:admin
+#   git-worktrees:write
+#   file-ops:write
+#   deployment:read | deployment:write
+#   monitoring:read | monitoring:write
+#   prd-intake:write
+# Review + quality gates:
+#   review-gates:read              # reads the six parallel review-gate results
+#   review-gates:write             # writes gate feedback into the review line
+#   quality-gate:read              # reads a gate verdict without acting on it
+#   quality-gate:rate              # rating gates (adversarial, ui-functionality) emit a 1-5 score
+#   quality-gate:approve | quality-gate:reject | quality-gate:escalate | quality-gate:override
+# Orchestration + knowledge:
+#   inter-agent-protocol:admin | inter-agent-protocol:execute
+#   delegation:read | delegation:write
+#   knowledge-retrieval:read | knowledge-retrieval:write
+#   knowledge-capture:write
+#   counselor-invocation:execute
+#   capability-grant               # control-plane only: provisions/widens scopes
+#   policy:admin                   # CEO-stewarded guardrail-policy authorship
+# Business / company-scale scopes (Echelon exec + business layer):
+#   finance:read                   # finance domain (cost accounting, spend signal)
+#   budget:approve                 # spend authority
+#   legal:review                   # legal domain (contracts, licensing, compliance)
+#   hr:read | hr:write             # people-ops domain (roster, role definitions)
+#   sales:write                    # revenue domain (deals, bizdev)
+#   marketing:write                # marketing / growth / devrel external content
+#   roadmap:admin                  # product roadmap governance (scope in/out, sequence)
+#   product:read                   # reads backlog / acceptance criteria / product state
+#   design:read                    # reads design artifacts + research synthesis
+#   kanban:write                   # manages a board view (e.g. the product roadmap board)
+#   vendor:onboard                 # vendor / model-provider acquisition
+# ---------------------------------------------------------------------------
 
 ingestion-pm:
   - source-control:read
@@ -204,10 +247,12 @@ dba:
   - deployment:write
   - monitoring:read
 
-developer-advocate:
+developer-advocate:              # mirrors re-cast agent.config.yaml granted block
   - source-control:read
   - knowledge-retrieval:read
   - knowledge-capture:write
+  - delegation:write
+  - marketing:write        # NEW scope (developer-facing external content)
 
 solution-architect:
   - source-control:read
@@ -227,6 +272,190 @@ mlops-engineer:
 ai-safety-engineer:
   - source-control:read
   - knowledge-retrieval:read
+
+# ===========================================================================
+# EXECUTIVE LAYER (new for Echelon company scale)
+# Scopes mirror each agent.config.yaml capabilities block; least-privilege.
+# New business scopes introduced here (flagged): finance:read, budget:approve,
+# legal:review, hr:read, hr:write, sales:write, marketing:write, vendor:onboard.
+# ===========================================================================
+
+chief-executive-officer:
+  - delegation:write
+  - quality-gate:override
+  - counselor-invocation:execute
+  - knowledge-retrieval:read
+  - knowledge-capture:write
+
+chief-technology-officer:
+  - source-control:read
+  - quality-gate:approve
+  - quality-gate:override
+  - delegation:write
+  - knowledge-capture:write
+
+chief-financial-officer:
+  - finance:read           # NEW scope (finance domain)
+  - budget:approve         # NEW scope (spend authority)
+  - knowledge-retrieval:read
+  - knowledge-capture:write
+  - delegation:read
+  - quality-gate:approve
+
+chief-operating-officer:
+  - delegation:write
+  - knowledge-retrieval:read
+  - knowledge-capture:write
+  - monitoring:read
+
+chief-information-security-officer:
+  - source-control:read
+  - quality-gate:approve
+  - quality-gate:reject
+  - quality-gate:escalate
+  - counselor-invocation:execute
+
+chief-product-officer:           # mirrors re-cast agent.config.yaml granted block
+  - delegation:write
+  - roadmap:admin          # NEW scope (product roadmap governance)
+  - product:read           # NEW scope (reads backlog / product state)
+  - design:read            # NEW scope (reads design artifacts + research synthesis)
+  - kanban:write
+  - quality-gate:override  # NON-security gates only
+  - counselor-invocation:execute
+  - knowledge-retrieval:read
+  - knowledge-capture:write
+
+chief-human-resources-officer:
+  - hr:read                # NEW scope (people-ops domain)
+  - hr:write               # NEW scope (roster/role definition)
+  - knowledge-retrieval:read
+  - knowledge-capture:write
+  - delegation:read
+
+chief-revenue-officer:
+  - sales:write            # NEW scope (revenue domain)
+  - knowledge-retrieval:read
+  - knowledge-capture:write
+  - delegation:write
+
+chief-marketing-officer:
+  - marketing:write        # NEW scope (marketing/growth domain)
+  - knowledge-retrieval:read
+  - knowledge-capture:write
+  - delegation:write
+
+general-counsel:
+  - legal:review           # NEW scope (legal domain)
+  - source-control:read
+  - knowledge-retrieval:read
+  - quality-gate:reject
+  - quality-gate:escalate
+
+# ===========================================================================
+# FINANCE / LEGAL / PEOPLE / SALES / MARKETING / SUPPORT / OPS (new)
+# ===========================================================================
+
+finance-controller:
+  - finance:read           # NEW scope
+  - knowledge-retrieval:read
+  - knowledge-capture:write
+  - monitoring:read
+
+financial-analyst:
+  - finance:read           # NEW scope
+  - knowledge-retrieval:read
+  - knowledge-capture:write
+
+legal-counsel:
+  - legal:review           # NEW scope
+  - source-control:read
+  - knowledge-retrieval:read
+  - quality-gate:reject
+
+compliance-officer:
+  - source-control:read
+  - knowledge-retrieval:read
+  - quality-gate:reject
+  - quality-gate:escalate
+
+hr-business-partner:
+  - hr:read                # NEW scope
+  - knowledge-retrieval:read
+  - knowledge-capture:write
+  - delegation:read
+
+recruiter:
+  - hr:read                # NEW scope
+  - knowledge-retrieval:read
+  - knowledge-capture:write
+
+account-executive:
+  - sales:write            # NEW scope
+  - knowledge-retrieval:read
+  - knowledge-capture:write
+
+business-development-rep:
+  - sales:write            # NEW scope
+  - knowledge-retrieval:read
+  - knowledge-capture:write
+
+growth-marketer:
+  - marketing:write        # NEW scope
+  - knowledge-retrieval:read
+  - knowledge-capture:write
+
+content-marketer:
+  - marketing:write        # NEW scope
+  - knowledge-retrieval:read
+  - knowledge-capture:write
+  - file-ops:write
+
+support-engineer:
+  - knowledge-retrieval:read
+  - monitoring:read
+
+procurement-manager:
+  - vendor:onboard         # NEW scope (vendor/model-provider acquisition)
+  - knowledge-retrieval:read
+  - knowledge-capture:write
+  - monitoring:read
+
+it-support-admin:
+  - source-control:read
+  - file-ops:write
+  - monitoring:read
+  - capability-grant       # provisions connectors/access for the agent fleet
+
+# ===========================================================================
+# CONTROL PLANE + ADVISORY (global, cross-season)
+# ===========================================================================
+
+chief-of-staff-orchestrator:
+  - delegation:write
+  - inter-agent-protocol:admin
+  - quality-gate:override
+  - counselor-invocation:execute
+  - monitoring:write
+  - knowledge-capture:write
+
+global-incident-commander:
+  - delegation:write
+  - monitoring:read
+  - quality-gate:escalate
+  - knowledge-retrieval:write
+  - counselor-invocation:execute
+
+counselor-convener:
+  - counselor-invocation:execute
+  - quality-gate:override
+  - knowledge-retrieval:read
+  - knowledge-capture:write
+
+advisory-board-sme:
+  - knowledge-retrieval:read
+  - knowledge-capture:write
+  - counselor-invocation:execute
 
 # Advisory board
 _advisory_board:
