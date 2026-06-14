@@ -7,8 +7,12 @@ import {
   archiveSeason,
   restoreSeason,
   answerSeasonDirection,
+  setSeasonMode,
+  setHumanTeam,
+  listHumanTeamCandidates,
 } from '../core/season-manager';
 import type { SeasonRuntimeDeps } from '../core/season-manager';
+import type { SeasonMode, HumanSeat } from '../types/echelon';
 import { readConversation } from '../core/conversation-log';
 import type { ConversationKind } from '../core/conversation-log';
 import { importJiraToBoard, jiraStatusForSeason } from '../services/jira-sync';
@@ -190,5 +194,46 @@ export function registerSeasonHandlers(deps: SeasonHandlerDependencies): void {
   // back as `{ opened: false, reason }`. Never auto-merges.
   ipcMain.handle('season:epic:open-pr', async (_event, seasonId: string, epicTaskId: string) => {
     return forceOpenEpicPR(seasonId, epicTaskId);
+  });
+
+  // ── #22a — season mode + human hybrid dev team ──────────────────────────────
+
+  // Set the season's operating mode (autonomous vs collaborative). Persists +
+  // broadcasts + logs a system entry. Returns the updated season.
+  ipcMain.handle('season:mode:set', async (_event, seasonId: string, mode: SeasonMode) => {
+    try {
+      const season = setSeasonMode(seasonId, mode);
+      if (!season) return { success: false, error: 'Season not found.' };
+      return { success: true, season };
+    } catch (err) {
+      console.error('Failed to set season mode:', err);
+      return { success: false, error: String(err) };
+    }
+  });
+
+  // Populate (or clear) the season's human hybrid dev team. Stops the cast agent
+  // for each newly human-owned archetype; an empty array clears the team. Returns
+  // the updated season.
+  ipcMain.handle('season:humanteam:set', async (_event, seasonId: string, seats: HumanSeat[]) => {
+    try {
+      const season = setHumanTeam(seasonId, Array.isArray(seats) ? seats : []);
+      if (!season) return { success: false, error: 'Season not found.' };
+      return { success: true, season };
+    } catch (err) {
+      console.error('Failed to set human team:', err);
+      return { success: false, error: String(err) };
+    }
+  });
+
+  // Best-effort fetch of the humans who could own a role (GitHub collaborators +
+  // Jira assignable users). Never throws — unavailable sources come back empty
+  // with a reason.
+  ipcMain.handle('season:humanteam:candidates', async (_event, seasonId: string) => {
+    try {
+      return await listHumanTeamCandidates(seasonId);
+    } catch (err) {
+      console.error('Failed to list human team candidates:', err);
+      return { github: [], jira: [], reasons: { github: String(err), jira: String(err) } };
+    }
   });
 }

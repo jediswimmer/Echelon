@@ -80,6 +80,39 @@ export interface SeasonDirectionRequest {
   answeredAt?: string;
 }
 
+/**
+ * Per-season operating mode (#22a).
+ *   • `autonomous`    — the agent team runs the whole show. Fully-autonomous
+ *     scheduling (usage windows + cron) lands with #18; until then this is the
+ *     default and only affects which control-board affordances render.
+ *   • `collaborative` — a human hybrid dev team works alongside the agents. Real
+ *     GitHub/Jira users are mapped onto archetype roles ({@link HumanSeat}); the
+ *     agents cover only the non-human seats, and epic-completion PRs are gated
+ *     `pending-human` (see `evaluateReviewGate` in `electron/services/git-pr.ts`).
+ * Treat a missing `mode` as `'autonomous'`.
+ */
+export type SeasonMode = 'autonomous' | 'collaborative';
+
+/**
+ * One human-owned seat in a collaborative season (#22a): a real person mapped
+ * onto an archetype role. When a season has ≥1 seat, that role's cast agent is
+ * stopped (the human owns it) and re-spawns skip casting an agent for it.
+ */
+export interface HumanSeat {
+  /** Stable id (uuid) for this seat assignment. */
+  id: string;
+  /** The archetype/role this human owns — matches a cast agent's `archetypeId`. */
+  archetypeId: string;
+  /** Display name of the role/character this seat covers. */
+  roleName?: string;
+  /** Where the human was sourced from. */
+  source: 'github' | 'jira' | 'manual';
+  /** GitHub login, Jira accountId/email, or a freeform handle. */
+  handle: string;
+  /** Human-friendly display name (when known). */
+  displayName?: string;
+}
+
 export interface Season {
   id: string;
   name: string;
@@ -111,12 +144,20 @@ export interface Season {
    */
   directionRequest?: SeasonDirectionRequest;
   /**
-   * Reserved seam for the human hybrid dev team (#22). When `seats` is non-empty,
-   * epic-completion PRs are gated `pending-human` instead of `auto-approved`
-   * (see `evaluateReviewGate` in `electron/services/git-pr.ts`). Absent/empty ⇒
-   * no human team ⇒ auto-approved. #22 will flesh out the seat shape.
+   * Operating mode for this season (#22a): `autonomous` (agents run the show,
+   * the default) vs `collaborative` (a human hybrid dev team works alongside the
+   * agents). Missing ⇒ treated as `'autonomous'`.
    */
-  humanTeam?: { seats?: unknown[] };
+  mode?: SeasonMode;
+  /**
+   * The human hybrid dev team for a collaborative season (#22a). When `seats` is
+   * non-empty, epic-completion PRs are gated `pending-human` instead of
+   * `auto-approved` (see `evaluateReviewGate` in `electron/services/git-pr.ts`),
+   * each seat's archetype is owned by a real person (its cast agent is stopped),
+   * and re-spawns skip casting an agent for it. Absent/empty ⇒ no human team ⇒
+   * auto-approved, all seats agent-run.
+   */
+  humanTeam?: { seats: HumanSeat[] };
 }
 
 export interface Character extends AgentStatus {

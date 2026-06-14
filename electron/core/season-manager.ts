@@ -16,7 +16,7 @@ import { composeRosterFromPrd } from './composer';
 import { trustClaudeProjects } from './claude-trust';
 import { bootstrapRepoContext } from './repo-context';
 import { validateLocalClone } from './git-validate';
-import type { Season, SeasonStatus, SeasonSourceControl, SeasonIntake } from '../types/echelon';
+import type { Season, SeasonStatus, SeasonSourceControl, SeasonIntake, SeasonMode, HumanSeat } from '../types/echelon';
 import type { AgentStatus, AgentPermissionMode, AppSettings } from '../types';
 import type { RosterManifestData, RosterCharacterEntry } from './roster-manager';
 
@@ -278,9 +278,22 @@ export async function spawnSeason(
   broadcastToAllWindows('season:updated', season);
 
   // ── Cast the team ────────────────────────────────────────────────
+  // Collaborative seasons (#22a) may already have human-owned seats: skip casting
+  // an agent for any archetype a real person owns. A season is normally populated
+  // AFTER spawn, so this mainly matters for re-spawn / expansion — but the guard
+  // is wired here so a human-owned seat is never cast.
+  const humanOwnedArchetypes = new Set(
+    (season.humanTeam?.seats ?? []).map((s) => s.archetypeId),
+  );
   const cast: CastMember[] = [];
 
   for (const entry of rosterEntries) {
+    if (humanOwnedArchetypes.has(entry.archetype)) {
+      console.log(
+        `Season ${config.id}: skipping cast for archetype "${entry.archetype}" — owned by a human seat.`,
+      );
+      continue;
+    }
     try {
       const cfg = loadAgentConfig(entry.archetype);
       const slug = entry.character || cfg.character;
@@ -346,6 +359,13 @@ export async function spawnSeason(
       convenerMember.isConvener = true;
       // Re-point the convener map at the real agentId (not the bare slug).
       setConvenerAgentId(config.id, convenerMember.agent.id);
+    } else {
+      // The convener slug wasn't cast — e.g. its archetype is a human-owned seat
+      // (#22a). The primary-contact/convener role should stay agent-run; warn so
+      // this isn't a silent no-convener season.
+      console.warn(
+        `Season ${config.id}: convener "${convenerSlug}" was not cast (likely a human-owned seat); coordination will have no convener agent.`,
+      );
     }
   }
 
@@ -840,4 +860,368 @@ export function getSeason(id: string): Season | undefined {
 
 export function getAllSeasons(): Season[] {
   return Array.from(seasons.values());
+}
+
+// ─── #22a — season mode + human hybrid dev team ───────────────────────────────
+
+/**
+ * Set a season's operating mode (#22a): `autonomous` (agents run the show, the
+ * default) vs `collaborative` (a human hybrid dev team works alongside the
+ * agents). Persists, broadcasts, and logs a system conversation entry. No-op for
+ * an unknown season. The fully-autonomous scheduling (usage windows + cron) is
+ * deferred to #18 — this only flips the stored mode + control-board affordances.
+ */
+export function setSeasonMode(seasonId: string, mode: SeasonMode): Season | undefined {
+  const season = seasons.get(seasonId);
+  if (!season) return undefined;
+
+  season.mode = mode;
+  saveSeason(seasonId);
+  broadcastToAllWindows('season:updated', season);
+
+  void (async () => {
+    try {
+      const { appendConversationEntry } = await import('./conversation-log');
+      appendConversationEntry(seasonId, {
+        agentId: 'system',
+        canonName: 'Ops',
+        kind: 'system',
+        text:
+          mode === 'collaborative'
+            ? 'Season switched to Collaborative mode — populate the human team to hand roles to real people.'
+            : 'Season switched to Autonomous mode — the agent team runs the show.',
+      });
+    } catch (err) {
+      console.error(`setSeasonMode: failed to log for season ${seasonId}:`, err);
+    }
+  })();
+
+  return season;
+}
+
+/**
+ * Stop the running cast agent that owns a given archetype in a season, if any.
+ *
+ * Reuses the existing `agent:*` stop path WITHOUT editing agent-manager.ts: it
+ * reads the shared `agents` map (an export of agent-manager) and kills the
+ * agent's PTY via pty-manager's `killPty`, then mirrors the `agent:stop` IPC
+ * handler's state transition (idle + `_manuallyStoppedAt`) and broadcast. Both
+ * `agents` and `killPty` are CALLED here (existing exports) — neither module is
+ * modified. Best-effort: returns the stopped agent's canonName/slug for logging,
+ * or undefined when no matching running agent was found.
+ */
+function stopAgentForArchetype(seasonId: string, archetypeId: string): string | undefined {
+  try {
+    const { agents } = require('./agent-manager') as typeof import('./agent-manager');
+    const { killPty } = require('./pty-manager') as typeof import('./pty-manager');
+
+    const agent = Array.from(agents.values()).find(
+      (a) => a.seasonId === seasonId && a.archetypeId === archetypeId,
+    );
+    if (!agent) return undefined;
+
+    const label = agent.canonName || agent.name || agent.id;
+
+    // Only stop a running/active PTY-backed agent; idle agents need no action.
+    if (agent.ptyId) {
+      killPty(agent.ptyId);
+      agent.ptyId = undefined;
+    }
+    agent.status = 'idle';
+    agent.currentTask = undefined;
+    agent.lastActivity = new Date().toISOString();
+    // Mirror the agent:stop handler: mark manually-stopped so status detection
+    // doesn't immediately flip it back to running.
+    (agent as AgentStatus & { _manuallyStoppedAt?: number })._manuallyStoppedAt = Date.now();
+
+    broadcastToAllWindows('agent:status', {
+      type: 'status',
+      agentId: agent.id,
+      status: 'idle',
+      timestamp: agent.lastActivity,
+    });
+
+    return label;
+  } catch (err) {
+    console.error(`stopAgentForArchetype: failed for season ${seasonId} / ${archetypeId}:`, err);
+    return undefined;
+  }
+}
+
+/**
+ * Populate (or clear) a season's human hybrid dev team (#22a).
+ *
+ * Persists `season.humanTeam = { seats }`; for every archetype now human-owned,
+ * stops that role's cast agent if it is running (via {@link stopAgentForArchetype},
+ * which reuses the existing agent-stop path without editing agent-manager). Logs
+ * a system conversation entry summarizing human vs agent seats, saves, and
+ * broadcasts. Passing an empty array clears the human team (PRs revert to
+ * auto-approved). The stopped agents are not re-cast here — re-spawn/expansion
+ * skips human-owned archetypes (see {@link spawnSeason}'s cast loop).
+ */
+export function setHumanTeam(seasonId: string, seats: HumanSeat[]): Season | undefined {
+  const season = seasons.get(seasonId);
+  if (!season) return undefined;
+
+  const normalized = Array.isArray(seats) ? seats : [];
+  season.humanTeam = { seats: normalized };
+  // Switching a season to a populated human team implies collaborative mode.
+  if (normalized.length > 0) season.mode = 'collaborative';
+
+  // Stop the cast agent for each newly human-owned archetype.
+  const stopped: string[] = [];
+  for (const seat of normalized) {
+    const label = stopAgentForArchetype(seasonId, seat.archetypeId);
+    if (label) stopped.push(label);
+  }
+
+  // Persist the agent-state changes from the stops above synchronously
+  // (saveAgents writes synchronously) BEFORE saving/broadcasting the season, so
+  // on-disk agent state can't diverge from what the UI was just told.
+  try {
+    const { saveAgents } = require('./agent-manager') as typeof import('./agent-manager');
+    saveAgents();
+  } catch (err) {
+    console.error(`setHumanTeam: failed to persist agent state for season ${seasonId}:`, err);
+  }
+
+  saveSeason(seasonId);
+  broadcastToAllWindows('season:updated', season);
+
+  void (async () => {
+    try {
+      const { appendConversationEntry } = await import('./conversation-log');
+      const humanCount = normalized.length;
+      const summary =
+        humanCount === 0
+          ? 'Human team cleared — all roles are agent-run.'
+          : `Human team updated: ${humanCount} seat${humanCount === 1 ? '' : 's'} now human-run (${normalized
+              .map((s) => s.displayName || s.handle)
+              .join(', ')}).` + (stopped.length ? ` Stopped agent${stopped.length === 1 ? '' : 's'}: ${stopped.join(', ')}.` : '');
+      appendConversationEntry(seasonId, {
+        agentId: 'system',
+        canonName: 'Ops',
+        kind: 'system',
+        text: summary,
+      });
+    } catch (err) {
+      console.error(`setHumanTeam: failed to log for season ${seasonId}:`, err);
+    }
+  })();
+
+  return season;
+}
+
+/** A GitHub collaborator candidate for the human-team picker. */
+export interface GitHubCandidate {
+  login: string;
+  name?: string;
+}
+
+/** A Jira assignable-user candidate for the human-team picker. */
+export interface JiraCandidate {
+  accountId: string;
+  displayName: string;
+  email?: string;
+}
+
+/** Candidate humans to map onto roles, grouped by source (#22a). */
+export interface HumanTeamCandidates {
+  github: GitHubCandidate[];
+  jira: JiraCandidate[];
+  /** Per-source reason when a list is empty/unavailable (best-effort, no throw). */
+  reasons: { github?: string; jira?: string };
+}
+
+/**
+ * Parse `owner/repo` out of a season's GitHub source-control linkage. Handles a
+ * bare `owner/repo`, `https://github.com/owner/repo(.git)`, and
+ * `git@github.com:owner/repo(.git)`. Returns undefined when not derivable.
+ */
+function parseGitHubOwnerRepo(season: Season): string | undefined {
+  const sc = season.sourceControl;
+  if (!sc || sc.type !== 'github') return undefined;
+  const repoUrl = sc.repoUrl?.trim();
+  if (!repoUrl) return undefined;
+  let candidate: string | undefined;
+  const m = repoUrl.match(/github\.com[/:]([^/]+\/[^/]+?)(?:\.git)?$/i);
+  if (m) candidate = m[1];
+  else if (/^[^/\s]+\/[^/\s]+$/.test(repoUrl)) candidate = repoUrl.replace(/\.git$/i, '');
+  // Guard: owner/repo goes into a `gh api repos/{ownerRepo}/...` path — only allow
+  // plain segments (no path-traversal / query chars) or treat it as underivable.
+  if (candidate && /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(candidate)) return candidate;
+  return undefined;
+}
+
+/**
+ * Best-effort fetch of the humans who could own a role in this season (#22a):
+ *   • GitHub collaborators — when the season is GitHub-linked AND `gh` is
+ *     available, via `gh api repos/{owner}/{repo}/collaborators`.
+ *   • Jira assignable users — when the season has a linked project AND Jira is
+ *     enabled, via `/rest/api/3/user/assignable/search?project={KEY}`.
+ *
+ * Every source degrades gracefully: an unavailable/unlinked/errored source comes
+ * back as an empty array plus a human-readable reason. NEVER throws.
+ */
+export async function listHumanTeamCandidates(seasonId: string): Promise<HumanTeamCandidates> {
+  const result: HumanTeamCandidates = { github: [], jira: [], reasons: {} };
+  const season = seasons.get(seasonId);
+  if (!season) {
+    result.reasons.github = 'Season not found.';
+    result.reasons.jira = 'Season not found.';
+    return result;
+  }
+
+  // ── GitHub collaborators (best-effort) ──
+  const ownerRepo = parseGitHubOwnerRepo(season);
+  if (!ownerRepo) {
+    result.reasons.github =
+      season.sourceControl?.type === 'github'
+        ? 'Could not derive owner/repo from the linked GitHub repo.'
+        : 'This season is not linked to a GitHub repo.';
+  } else {
+    try {
+      const { ghAvailable } = await import('../services/git-pr');
+      if (!(await ghAvailable())) {
+        result.reasons.github = 'The GitHub CLI (gh) is not available. Install + authenticate gh.';
+      } else {
+        result.github = await fetchGitHubCollaborators(ownerRepo);
+        if (result.github.length === 0) {
+          result.reasons.github = 'No collaborators returned for the linked repo.';
+        }
+      }
+    } catch (err) {
+      console.error(`listHumanTeamCandidates: GitHub fetch failed for ${seasonId}:`, err);
+      result.reasons.github = 'Failed to fetch GitHub collaborators.';
+    }
+  }
+
+  // ── Jira assignable users (best-effort) ──
+  const projectKey = season.jiraProjectKey?.trim();
+  if (!projectKey) {
+    result.reasons.jira = 'This season is not linked to a Jira project.';
+  } else {
+    try {
+      const { getJiraConfig } = await import('../services/jira-sync');
+      const cfg = getJiraConfig();
+      if (!cfg.enabled) {
+        result.reasons.jira = cfg.reason || 'Jira is not enabled.';
+      } else {
+        result.jira = await fetchJiraAssignableUsers(cfg, projectKey);
+        if (result.jira.length === 0) {
+          result.reasons.jira = 'No assignable users returned for the linked project.';
+        }
+      }
+    } catch (err) {
+      console.error(`listHumanTeamCandidates: Jira fetch failed for ${seasonId}:`, err);
+      result.reasons.jira = 'Failed to fetch Jira assignable users.';
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Fetch a repo's collaborators via `gh api repos/{owner}/{repo}/collaborators`.
+ * Reuses the same `execFile gh` (no shell) + resolved-PATH pattern as git-pr.ts.
+ * Returns an empty array on any failure (caller supplies the reason).
+ */
+async function fetchGitHubCollaborators(ownerRepo: string): Promise<GitHubCandidate[]> {
+  const { execFile } = require('child_process') as typeof import('child_process');
+  const { promisify } = require('util') as typeof import('util');
+  const execFileAsync = promisify(execFile);
+
+  // Resolve the gh binary + PATH the same way git-pr.ts does (no shell interp).
+  let ghBinary = 'gh';
+  const extraPaths: string[] = [];
+  try {
+    if (fs.existsSync(require('../constants').APP_SETTINGS_FILE)) {
+      const settings = JSON.parse(fs.readFileSync(require('../constants').APP_SETTINGS_FILE, 'utf-8'));
+      const cliPaths = settings?.cliPaths;
+      if (cliPaths) {
+        if (cliPaths.gh) {
+          ghBinary = cliPaths.gh;
+          extraPaths.push(path.dirname(cliPaths.gh));
+        }
+        if (cliPaths.node) extraPaths.push(path.dirname(cliPaths.node));
+        if (Array.isArray(cliPaths.additionalPaths)) extraPaths.push(...cliPaths.additionalPaths.filter(Boolean));
+      }
+    }
+  } catch {
+    // Fall through to defaults; buildFullPath still adds sensible dirs.
+  }
+  const env = { ...process.env, PATH: buildFullPath(extraPaths), GIT_TERMINAL_PROMPT: '0' };
+
+  const { stdout } = await execFileAsync(
+    ghBinary,
+    [
+      'api',
+      `repos/${ownerRepo}/collaborators`,
+      '--paginate',
+      '--jq',
+      '.[] | {login: .login, name: .name}',
+    ],
+    { env, timeout: 30_000, maxBuffer: 8 * 1024 * 1024 },
+  );
+
+  // `--jq` over a paginated array yields one JSON object per line (JSONL).
+  const out: GitHubCandidate[] = [];
+  for (const line of String(stdout).split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    try {
+      const obj = JSON.parse(trimmed) as { login?: string; name?: string | null };
+      if (obj.login) out.push({ login: obj.login, name: obj.name || undefined });
+    } catch {
+      // Skip an unparsable line rather than fail the whole fetch.
+    }
+  }
+  return out;
+}
+
+/**
+ * Fetch a project's assignable Jira users via
+ * `/rest/api/3/user/assignable/search?project={KEY}`. Reuses the Basic-auth fetch
+ * pattern from jira-sync.ts (we re-implement the tiny fetch here since jira-sync
+ * does not export a generic GET). Returns an empty array on any failure.
+ */
+async function fetchJiraAssignableUsers(
+  cfg: { baseUrl: string; email: string; apiToken: string },
+  projectKey: string,
+): Promise<JiraCandidate[]> {
+  // Jira project keys are alphanumeric/underscore — guard before query interpolation.
+  if (!/^[A-Za-z0-9_]+$/.test(projectKey)) {
+    throw new Error(`Invalid Jira project key: ${projectKey}`);
+  }
+  const auth = Buffer.from(`${cfg.email}:${cfg.apiToken}`).toString('base64');
+  const params = new URLSearchParams({ project: projectKey, maxResults: '100' });
+  const res = await fetch(`${cfg.baseUrl}/rest/api/3/user/assignable/search?${params.toString()}`, {
+    method: 'GET',
+    headers: { Authorization: `Basic ${auth}`, Accept: 'application/json' },
+  });
+  if (!res.ok) {
+    throw new Error(`Jira assignable/search → HTTP ${res.status} ${res.statusText}`);
+  }
+  const raw = await res.text();
+  if (!raw) return [];
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(parsed)) return [];
+
+  const out: JiraCandidate[] = [];
+  for (const u of parsed as Array<{ accountId?: string; displayName?: string; emailAddress?: string; accountType?: string }>) {
+    if (!u?.accountId) continue;
+    // Only offer real people (skip app/bot accounts when the type is exposed).
+    if (u.accountType && u.accountType !== 'atlassian') continue;
+    out.push({
+      accountId: u.accountId,
+      displayName: u.displayName || u.accountId,
+      email: u.emailAddress || undefined,
+    });
+  }
+  return out;
 }

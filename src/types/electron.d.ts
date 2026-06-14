@@ -25,6 +25,26 @@ export interface AgentEvent {
 export type KanbanIssueTypeElectron = 'epic' | 'story' | 'task';
 export type KanbanScopeElectron = 'all' | 'season' | 'global';
 
+/** Per-season operating mode (#22a). Missing ⇒ treated as 'autonomous'. */
+export type SeasonMode = 'autonomous' | 'collaborative';
+
+/** One human-owned seat in a collaborative season (#22a). */
+export interface HumanSeat {
+  id: string;
+  archetypeId: string;
+  roleName?: string;
+  source: 'github' | 'jira' | 'manual';
+  handle: string;
+  displayName?: string;
+}
+
+/** Candidate humans to map onto roles, grouped by source (#22a). */
+export interface HumanTeamCandidates {
+  github: Array<{ login: string; name?: string }>;
+  jira: Array<{ accountId: string; displayName: string; email?: string }>;
+  reasons: { github?: string; jira?: string };
+}
+
 export interface KanbanCommentElectron {
   id: string;
   author: string;
@@ -925,6 +945,22 @@ export interface ElectronAPI {
         reviewGate?: 'pending-human' | 'auto-approved' | 'approved';
         reason?: string;
       }>;
+    };
+    // Season mode (#22a): autonomous vs collaborative operating mode.
+    mode?: {
+      set: (
+        seasonId: string,
+        mode: SeasonMode,
+      ) => Promise<{ success: boolean; season?: unknown; error?: string }>;
+    };
+    // Human hybrid dev team (#22a): map real GitHub/Jira users onto roles, and
+    // fetch the candidate humans to assign.
+    humanTeam?: {
+      set: (
+        seasonId: string,
+        seats: HumanSeat[],
+      ) => Promise<{ success: boolean; season?: unknown; error?: string }>;
+      candidates: (seasonId: string) => Promise<HumanTeamCandidates>;
     };
     [key: string]: unknown;
   };

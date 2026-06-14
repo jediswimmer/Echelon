@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { ArrowLeft, Users, Shield, Settings, Archive, RotateCcw, MessagesSquare, KanbanSquare, Github, GitBranch, FolderGit2, FolderSearch, FileText, Loader2, Search, ScanSearch, CheckCircle2, AlertTriangle, Compass } from 'lucide-react';
+import { ArrowLeft, Users, Shield, Settings, Archive, RotateCcw, MessagesSquare, KanbanSquare, Github, GitBranch, FolderGit2, FolderSearch, FileText, Loader2, Search, ScanSearch, CheckCircle2, AlertTriangle, Compass, UserCog, Bot } from 'lucide-react';
 import ThemeBadge from '@/components/Echelon/ThemeBadge';
 import KanbanBoard from '@/components/KanbanBoard';
 import ConversationLogTab from './ConversationLogTab';
@@ -17,6 +17,17 @@ interface SeasonSourceControl {
 
 type SeasonIntake = 'greenfield' | 'brownfield';
 type SeasonContextStatus = 'greenfield' | 'searching' | 'reviewing' | 'ready' | 'failed';
+type SeasonMode = 'autonomous' | 'collaborative';
+
+/** One human-owned seat in a collaborative season (#22a). */
+interface HumanSeat {
+  id: string;
+  archetypeId: string;
+  roleName?: string;
+  source: 'github' | 'jira' | 'manual';
+  handle: string;
+  displayName?: string;
+}
 
 interface SeasonDirectionOption {
   id: string;
@@ -54,6 +65,10 @@ interface Season {
   groomedAt?: string;
   /** Pending "needs your direction" prompt for brownfield seasons (17c). */
   directionRequest?: SeasonDirectionRequest;
+  /** Operating mode (#22a): autonomous (default) vs collaborative. */
+  mode?: SeasonMode;
+  /** Human hybrid dev team (#22a) — populated in collaborative mode. */
+  humanTeam?: { seats: HumanSeat[] };
 }
 
 /** Chip metadata for the brownfield context-bootstrap status. */
@@ -290,6 +305,9 @@ export default function SeasonDetailPage() {
       {/* Direction request (17c): the team needs the user to pick a starting point. */}
       <DirectionCard season={season} />
 
+      {/* Season mode (#22a): autonomous vs collaborative + the human-team panel. */}
+      <SeasonModeCard season={season} />
+
       {/* Tabs */}
       <div className="flex items-center gap-2 mb-4 border-b border-border">
         {tabs.map(tab => (
@@ -456,6 +474,381 @@ function DirectionCard({ season }: { season: Season }) {
       </button>
     </div>
   );
+}
+
+/* ─── Season mode + human team (#22a) ────────────────────────── */
+
+/** A role derived from the season's cast (one per archetype). */
+interface SeasonRole {
+  archetypeId: string;
+  roleName: string;
+}
+
+interface HumanTeamCandidates {
+  github: Array<{ login: string; name?: string }>;
+  jira: Array<{ accountId: string; displayName: string; email?: string }>;
+  reasons: { github?: string; jira?: string };
+}
+
+/**
+ * Prominent card with the Autonomous ⟷ Collaborative segmented switch (bound to
+ * `season.mode`, default autonomous). In Collaborative mode it renders the
+ * {@link HumanTeamPanel} to map real GitHub/Jira users onto roles. In Autonomous
+ * mode it notes that fully-autonomous scheduling (usage windows + cron) lands
+ * with #18 (no cron is built here).
+ */
+function SeasonModeCard({ season }: { season: Season }) {
+  const api = typeof window !== 'undefined'
+    ? (window as unknown as { electronAPI: any }).electronAPI
+    : null;
+
+  const mode: SeasonMode = season.mode ?? 'autonomous';
+  const [switching, setSwitching] = useState(false);
+
+  const setMode = async (next: SeasonMode) => {
+    if (!api?.season?.mode?.set || switching || next === mode) return;
+    setSwitching(true);
+    try {
+      await api.season.mode.set(season.id, next);
+      // The `season:updated` broadcast re-renders with the new mode.
+    } catch (err) {
+      console.error('Failed to set season mode:', err);
+    } finally {
+      setSwitching(false);
+    }
+  };
+
+  return (
+    <div className="mb-4 bg-card border border-border rounded-lg p-4">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex items-center gap-2 min-w-0">
+          {mode === 'collaborative' ? (
+            <UserCog className="w-4 h-4 text-primary shrink-0" />
+          ) : (
+            <Bot className="w-4 h-4 text-primary shrink-0" />
+          )}
+          <div className="min-w-0">
+            <h3 className="text-sm font-semibold text-foreground">Team mode</h3>
+            <p className="text-xs text-muted-foreground">
+              {mode === 'collaborative'
+                ? 'A human hybrid dev team works alongside the agents.'
+                : 'The agent team runs the show.'}
+            </p>
+          </div>
+        </div>
+
+        {/* Segmented Autonomous ⟷ Collaborative switch. */}
+        <div className="inline-flex items-center rounded-lg border border-border bg-secondary/40 p-0.5 shrink-0">
+          {(['autonomous', 'collaborative'] as const).map(opt => {
+            const active = mode === opt;
+            const Icon = opt === 'collaborative' ? UserCog : Bot;
+            return (
+              <button
+                key={opt}
+                type="button"
+                onClick={() => setMode(opt)}
+                disabled={switching}
+                className={`
+                  flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors disabled:opacity-50
+                  ${active
+                    ? 'bg-primary text-primary-foreground'
+                    : 'text-muted-foreground hover:text-foreground'
+                  }
+                `}
+              >
+                {switching && active ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Icon className="w-3.5 h-3.5" />}
+                {opt === 'collaborative' ? 'Collaborative' : 'Autonomous'}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {mode === 'autonomous' ? (
+        <p className="mt-3 text-[11px] text-muted-foreground border-t border-border pt-3">
+          Fully-autonomous scheduling (usage windows + cron) lands with #18.
+        </p>
+      ) : (
+        <HumanTeamPanel season={season} />
+      )}
+    </div>
+  );
+}
+
+/**
+ * Collaborative-mode panel (#22a): lists the season's roles (derived from the
+ * cast), shows whether each is Agent-run or Human-run, and lets the user assign a
+ * human per role from GitHub/Jira candidates (or a manual handle). "Save team"
+ * persists the seats via `season.humanTeam.set`; human-owned roles' agents are
+ * stopped backend-side, and the summary reflects human vs agent counts.
+ */
+function HumanTeamPanel({ season }: { season: Season }) {
+  const api = typeof window !== 'undefined'
+    ? (window as unknown as { electronAPI: any }).electronAPI
+    : null;
+
+  const [roles, setRoles] = useState<SeasonRole[]>([]);
+  const [candidates, setCandidates] = useState<HumanTeamCandidates | null>(null);
+  const [loadingCandidates, setLoadingCandidates] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  // archetypeId → the chosen seat (or undefined ⇒ agent-run). Seeded from the
+  // season's persisted humanTeam, then edited locally until "Save team".
+  const [assignments, setAssignments] = useState<Record<string, HumanSeat | undefined>>({});
+  // Per-role free-text manual handle entry (only applied if no picker choice).
+  const [manualHandles, setManualHandles] = useState<Record<string, string>>({});
+
+  // Derive the roles from the cast agents (one entry per archetype).
+  useEffect(() => {
+    if (!api?.agent?.list) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const all: Array<{ id: string; archetypeId?: string; canonName?: string; name?: string }> =
+          await api.agent.list();
+        if (cancelled) return;
+        const byArchetype = new Map<string, SeasonRole>();
+        for (const a of all) {
+          if (!season.characterIds.includes(a.id)) continue;
+          const archetypeId = a.archetypeId;
+          if (!archetypeId) continue;
+          if (!byArchetype.has(archetypeId)) {
+            byArchetype.set(archetypeId, { archetypeId, roleName: a.canonName || a.name || archetypeId });
+          }
+        }
+        // Also surface any human-owned archetype that no longer has a cast agent
+        // (its agent was stopped) so the role stays visible + reassignable.
+        for (const seat of season.humanTeam?.seats ?? []) {
+          if (!byArchetype.has(seat.archetypeId)) {
+            byArchetype.set(seat.archetypeId, {
+              archetypeId: seat.archetypeId,
+              roleName: seat.roleName || seat.archetypeId,
+            });
+          }
+        }
+        setRoles(Array.from(byArchetype.values()));
+      } catch (err) {
+        console.error('Failed to derive season roles:', err);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [season.characterIds.join(','), (season.humanTeam?.seats ?? []).length]);
+
+  // Seed local assignments from the persisted human team.
+  useEffect(() => {
+    const seeded: Record<string, HumanSeat | undefined> = {};
+    for (const seat of season.humanTeam?.seats ?? []) {
+      seeded[seat.archetypeId] = seat;
+    }
+    setAssignments(seeded);
+  }, [season.id, (season.humanTeam?.seats ?? []).map(s => `${s.archetypeId}:${s.handle}`).join(',')]);
+
+  // Fetch GitHub/Jira candidates once (best-effort).
+  useEffect(() => {
+    if (!api?.season?.humanTeam?.candidates) return;
+    let cancelled = false;
+    setLoadingCandidates(true);
+    (async () => {
+      try {
+        const res: HumanTeamCandidates = await api.season.humanTeam.candidates(season.id);
+        if (!cancelled) setCandidates(res);
+      } catch (err) {
+        console.error('Failed to fetch human-team candidates:', err);
+        if (!cancelled) {
+          setCandidates({ github: [], jira: [], reasons: { github: 'Fetch failed.', jira: 'Fetch failed.' } });
+        }
+      } finally {
+        if (!cancelled) setLoadingCandidates(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [season.id]);
+
+  // Apply a picker selection (value format: "github:<login>" / "jira:<accountId>" / "").
+  const assignFromPicker = (role: SeasonRole, value: string) => {
+    setManualHandles(prev => ({ ...prev, [role.archetypeId]: '' }));
+    if (!value) {
+      setAssignments(prev => ({ ...prev, [role.archetypeId]: undefined }));
+      return;
+    }
+    const [source, key] = value.split(/:(.+)/) as ['github' | 'jira', string];
+    let seat: HumanSeat | undefined;
+    if (source === 'github') {
+      const c = candidates?.github.find(g => g.login === key);
+      if (c) {
+        seat = { id: makeId(), archetypeId: role.archetypeId, roleName: role.roleName, source: 'github', handle: c.login, displayName: c.name || c.login };
+      }
+    } else if (source === 'jira') {
+      const c = candidates?.jira.find(j => j.accountId === key);
+      if (c) {
+        seat = { id: makeId(), archetypeId: role.archetypeId, roleName: role.roleName, source: 'jira', handle: c.accountId, displayName: c.displayName };
+      }
+    }
+    if (seat) setAssignments(prev => ({ ...prev, [role.archetypeId]: seat }));
+  };
+
+  const setManual = (role: SeasonRole, handle: string) => {
+    setManualHandles(prev => ({ ...prev, [role.archetypeId]: handle }));
+    const trimmed = handle.trim();
+    setAssignments(prev => ({
+      ...prev,
+      [role.archetypeId]: trimmed
+        ? { id: prev[role.archetypeId]?.id || makeId(), archetypeId: role.archetypeId, roleName: role.roleName, source: 'manual', handle: trimmed, displayName: trimmed }
+        : undefined,
+    }));
+  };
+
+  const humanCount = roles.filter(r => assignments[r.archetypeId]).length;
+  const agentCount = roles.length - humanCount;
+
+  const saveTeam = async () => {
+    if (!api?.season?.humanTeam?.set || saving) return;
+    setSaving(true);
+    try {
+      const seats: HumanSeat[] = roles
+        .map(r => assignments[r.archetypeId])
+        .filter((s): s is HumanSeat => Boolean(s));
+      await api.season.humanTeam.set(season.id, seats);
+      // The `season:updated` broadcast re-seeds the panel.
+    } catch (err) {
+      console.error('Failed to save human team:', err);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="mt-3 border-t border-border pt-3">
+      <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
+        <h4 className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+          <Users className="w-3.5 h-3.5 text-muted-foreground" />
+          Human team
+        </h4>
+        <span className="text-[11px] text-muted-foreground">
+          <span className="text-foreground font-medium">{humanCount}</span> seat{humanCount === 1 ? '' : 's'} human-run,{' '}
+          <span className="text-foreground font-medium">{agentCount}</span> agent-run
+        </span>
+      </div>
+
+      {roles.length === 0 ? (
+        <p className="text-[11px] text-muted-foreground">
+          No roles to populate yet — the cast is assigned when the season spawns.
+        </p>
+      ) : (
+        <>
+          {/* Source-availability hints (best-effort fetch). */}
+          {candidates && (candidates.reasons.github || candidates.reasons.jira) && (
+            <div className="mb-2 space-y-0.5">
+              {candidates.reasons.github && (
+                <p className="text-[10px] text-muted-foreground flex items-center gap-1">
+                  <Github className="w-3 h-3 shrink-0" /> {candidates.reasons.github}
+                </p>
+              )}
+              {candidates.reasons.jira && (
+                <p className="text-[10px] text-muted-foreground flex items-center gap-1">
+                  <KanbanSquare className="w-3 h-3 shrink-0" /> {candidates.reasons.jira}
+                </p>
+              )}
+            </div>
+          )}
+
+          <div className="space-y-1.5">
+            {roles.map(role => {
+              const seat = assignments[role.archetypeId];
+              const isHuman = Boolean(seat);
+              const pickerValue = seat?.source === 'github'
+                ? `github:${seat.handle}`
+                : seat?.source === 'jira'
+                  ? `jira:${seat.handle}`
+                  : '';
+              return (
+                <div
+                  key={role.archetypeId}
+                  className="flex items-center gap-2 px-2.5 py-2 rounded-lg border border-border bg-secondary/30 flex-wrap"
+                >
+                  <span className="flex items-center gap-1.5 min-w-0 flex-1">
+                    {isHuman ? (
+                      <UserCog className="w-3.5 h-3.5 text-primary shrink-0" />
+                    ) : (
+                      <Bot className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                    )}
+                    <span className="text-xs text-foreground truncate" title={role.archetypeId}>
+                      {role.roleName}
+                    </span>
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded shrink-0 border ${isHuman ? 'border-primary/30 bg-primary/10 text-primary' : 'border-border bg-secondary text-muted-foreground'}`}>
+                      {isHuman ? 'Human-run' : 'Agent-run'}
+                    </span>
+                  </span>
+
+                  {/* Candidate picker (GitHub + Jira, grouped). */}
+                  <select
+                    value={pickerValue}
+                    onChange={e => assignFromPicker(role, e.target.value)}
+                    disabled={loadingCandidates}
+                    className="text-[11px] px-2 py-1 rounded-md bg-background border border-border text-foreground focus:outline-none focus:border-primary/50 disabled:opacity-50 max-w-[12rem]"
+                  >
+                    <option value="">Agent-run</option>
+                    {candidates && candidates.github.length > 0 && (
+                      <optgroup label="GitHub">
+                        {candidates.github.map(g => (
+                          <option key={`gh-${g.login}`} value={`github:${g.login}`}>
+                            {g.name ? `${g.name} (@${g.login})` : `@${g.login}`}
+                          </option>
+                        ))}
+                      </optgroup>
+                    )}
+                    {candidates && candidates.jira.length > 0 && (
+                      <optgroup label="Jira">
+                        {candidates.jira.map(j => (
+                          <option key={`jira-${j.accountId}`} value={`jira:${j.accountId}`}>
+                            {j.email ? `${j.displayName} (${j.email})` : j.displayName}
+                          </option>
+                        ))}
+                      </optgroup>
+                    )}
+                  </select>
+
+                  {/* Manual handle entry (used when no picker choice). */}
+                  <input
+                    type="text"
+                    value={manualHandles[role.archetypeId] ?? (seat?.source === 'manual' ? seat.handle : '')}
+                    onChange={e => setManual(role, e.target.value)}
+                    placeholder="or handle…"
+                    className="text-[11px] px-2 py-1 rounded-md bg-background border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/50 w-28"
+                  />
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="flex items-center gap-2 mt-3">
+            <button
+              type="button"
+              onClick={saveTeam}
+              disabled={saving}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-50"
+            >
+              {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Users className="w-3.5 h-3.5" />}
+              Save team
+            </button>
+            {loadingCandidates && (
+              <span className="text-[11px] text-muted-foreground flex items-center gap-1">
+                <Loader2 className="w-3 h-3 animate-spin" /> Loading candidates…
+              </span>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+/** Best-effort id for a new seat (crypto.randomUUID when available). */
+function makeId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `seat-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
 /* ─── Context panel (brownfield ingestion) ───────────────────── */

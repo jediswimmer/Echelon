@@ -770,6 +770,28 @@ contextBridge.exposeInMainWorld('electronAPI', {
       openPR: (seasonId: string, epicTaskId: string) =>
         ipcRenderer.invoke('season:epic:open-pr', seasonId, epicTaskId),
     },
+    // Season mode (#22a): autonomous vs collaborative operating mode.
+    mode: {
+      set: (seasonId: string, mode: 'autonomous' | 'collaborative') =>
+        ipcRenderer.invoke('season:mode:set', seasonId, mode),
+    },
+    // Human hybrid dev team (#22a): map real GitHub/Jira users onto roles, and
+    // fetch the candidate humans to assign.
+    humanTeam: {
+      set: (
+        seasonId: string,
+        seats: Array<{
+          id: string;
+          archetypeId: string;
+          roleName?: string;
+          source: 'github' | 'jira' | 'manual';
+          handle: string;
+          displayName?: string;
+        }>,
+      ) => ipcRenderer.invoke('season:humanteam:set', seasonId, seats),
+      candidates: (seasonId: string) =>
+        ipcRenderer.invoke('season:humanteam:candidates', seasonId),
+    },
     onUpdated: (callback: (season: any) => void) => {
       const listener = (_: unknown, season: any) => callback(season);
       ipcRenderer.on('season:updated', listener);
