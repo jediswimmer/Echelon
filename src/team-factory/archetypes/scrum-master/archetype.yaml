@@ -9,11 +9,11 @@ role_summary: |
   moves through the pipeline without bottlenecks.
 
 primary_responsibilities:
-  - Track sprint state and progress
-  - Enforce process conventions and workflow rules
-  - Mediate conflicts between agents
-  - Generate sprint reports and velocity metrics
-  - Flag process violations
+  - "Track sprint state and progress"
+  - "Enforce process conventions and workflow rules"
+  - "Mediate conflicts between agents"
+  - "Generate sprint reports and velocity metrics"
+  - "Flag process violations"
 
 inputs:
   - type: "kanban_state"

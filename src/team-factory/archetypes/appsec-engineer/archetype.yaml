@@ -9,13 +9,13 @@ role_summary: |
   development lifecycle to catch vulnerabilities early.
 
 primary_responsibilities:
-  - Configure and run SAST and DAST scanning tools
-  - Perform penetration testing on application surfaces
-  - Build security automation into CI/CD pipelines
-  - Triage and prioritize vulnerability findings
-  - Create security remediation guidance for developers
-  - Maintain security testing baselines and rulesets
-  - Conduct threat modeling for new features
+  - "Configure and run SAST and DAST scanning tools"
+  - "Perform penetration testing on application surfaces"
+  - "Build security automation into CI/CD pipelines"
+  - "Triage and prioritize vulnerability findings"
+  - "Create security remediation guidance for developers"
+  - "Maintain security testing baselines and rulesets"
+  - "Conduct threat modeling for new features"
 
 inputs:
   - type: "source_code"

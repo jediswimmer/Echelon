@@ -9,13 +9,13 @@ role_summary: |
   goals, and team execution capacity.
 
 primary_responsibilities:
-  - Prioritize features based on impact and effort
-  - Manage and communicate the product roadmap
-  - Facilitate stakeholder alignment and communication
-  - Define acceptance criteria for features and epics
-  - Track delivery progress against roadmap commitments
-  - Identify and resolve cross-team dependencies
-  - Maintain product backlog health and grooming
+  - "Prioritize features based on impact and effort"
+  - "Manage and communicate the product roadmap"
+  - "Facilitate stakeholder alignment and communication"
+  - "Define acceptance criteria for features and epics"
+  - "Track delivery progress against roadmap commitments"
+  - "Identify and resolve cross-team dependencies"
+  - "Maintain product backlog health and grooming"
 
 inputs:
   - type: "feature_request"

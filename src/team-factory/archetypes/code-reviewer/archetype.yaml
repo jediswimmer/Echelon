@@ -9,11 +9,11 @@ role_summary: |
   before code is approved for merge.
 
 primary_responsibilities:
-  - Perform line-by-line code review
-  - Enforce coding style and conventions
-  - Check adherence to best practices and patterns
-  - Verify test coverage and quality
-  - Provide actionable feedback for refinement
+  - "Perform line-by-line code review"
+  - "Enforce coding style and conventions"
+  - "Check adherence to best practices and patterns"
+  - "Verify test coverage and quality"
+  - "Provide actionable feedback for refinement"
 
 inputs:
   - type: "pull_requests"

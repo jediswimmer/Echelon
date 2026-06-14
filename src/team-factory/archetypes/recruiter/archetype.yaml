@@ -17,13 +17,13 @@ role_summary: |
   business partner a clean, justified hiring proposal.
 
 primary_responsibilities:
-  - Analyze the season manifest, tier, and kanban backlog to forecast headcount and detect role gaps before they block delivery
-  - Propose which archetypes to instantiate for the season's tier (medium runs lean; enterprise spawns the full company)
-  - Compose a balanced roster: right roles, no duplicate castings, no single points of failure on the critical path
-  - Draft casting requests for the theme engine, respecting strict one-role-per-character across the whole company
-  - Recommend stand-downs when a role is idle for the rest of the season, so the workforce stays right-sized
-  - Surface workforce risk (overload, missing role, thin coverage) to the HR business partner with a justified proposal
-  - Maintain the roster-composition rationale and casting history so future seasons reuse what worked
+  - "Analyze the season manifest, tier, and kanban backlog to forecast headcount and detect role gaps before they block delivery"
+  - "Propose which archetypes to instantiate for the season's tier (medium runs lean; enterprise spawns the full company)"
+  - "Compose a balanced roster: right roles, no duplicate castings, no single points of failure on the critical path"
+  - "Draft casting requests for the theme engine, respecting strict one-role-per-character across the whole company"
+  - "Recommend stand-downs when a role is idle for the rest of the season, so the workforce stays right-sized"
+  - "Surface workforce risk (overload, missing role, thin coverage) to the HR business partner with a justified proposal"
+  - "Maintain the roster-composition rationale and casting history so future seasons reuse what worked"
 
 inputs:
   - type: "season_manifest"

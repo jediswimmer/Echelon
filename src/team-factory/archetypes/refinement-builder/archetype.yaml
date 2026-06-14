@@ -9,11 +9,11 @@ role_summary: |
   meets the quality bar before re-submission.
 
 primary_responsibilities:
-  - Implement fixes from code review feedback
-  - Refactor code to pass quality gates
-  - Resolve review comments and address findings
-  - Re-submit refined code for subsequent review
-  - Ensure adherence to review-driven improvements
+  - "Implement fixes from code review feedback"
+  - "Refactor code to pass quality gates"
+  - "Resolve review comments and address findings"
+  - "Re-submit refined code for subsequent review"
+  - "Ensure adherence to review-driven improvements"
 
 inputs:
   - type: "review_comments"

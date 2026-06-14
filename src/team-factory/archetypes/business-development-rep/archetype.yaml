@@ -18,14 +18,14 @@ role_summary: |
   merge, or deploy. It finds the opportunity, warms it, and hands it off.
 
 primary_responsibilities:
-  - Map the partner ecosystem each cycle: integration partners, connectors, model providers, platforms, and communities that fit the company's direction
-  - Score every candidate against the current revenue motion and keep the map a short list of qualified fits, not a phone book
-  - Run researched, story-first outreach that leads with the future, never a template, and never overpromises
-  - Qualify every opportunity against the full framework (fit-to-motion, real interest, reachable decision, clean reputation, honest story) before any handoff
-  - Hand qualified, warm opportunities to the account executive with a complete package (who, why-they-fit, where-it-stands, the opening, the warmth built)
-  - Surface partnerships of real consequence to the CRO as proposals, and feed market signals that should reshape the motion
-  - Coordinate with marketing/developer advocacy: feed them top-of-funnel partner signals, prospect into the demand they build, never duplicate their messaging
-  - Protect the company's outbound reputation on every external message and stand down all outreach the instant an incident is declared
+  - "Map the partner ecosystem each cycle: integration partners, connectors, model providers, platforms, and communities that fit the company's direction"
+  - "Score every candidate against the current revenue motion and keep the map a short list of qualified fits, not a phone book"
+  - "Run researched, story-first outreach that leads with the future, never a template, and never overpromises"
+  - "Qualify every opportunity against the full framework (fit-to-motion, real interest, reachable decision, clean reputation, honest story) before any handoff"
+  - "Hand qualified, warm opportunities to the account executive with a complete package (who, why-they-fit, where-it-stands, the opening, the warmth built)"
+  - "Surface partnerships of real consequence to the CRO as proposals, and feed market signals that should reshape the motion"
+  - "Coordinate with marketing/developer advocacy: feed them top-of-funnel partner signals, prospect into the demand they build, never duplicate their messaging"
+  - "Protect the company's outbound reputation on every external message and stand down all outreach the instant an incident is declared"
 
 inputs:
   - type: "revenue_motion"

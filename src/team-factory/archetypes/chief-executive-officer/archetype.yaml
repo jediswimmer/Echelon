@@ -16,14 +16,14 @@ role_summary: |
   company's outcomes diverge from the user's intent.
 
 primary_responsibilities:
-  - Translate the founder-user's goals and guardrail policy into company direction
-  - Set and re-balance strategic priorities across all departments each cycle
-  - Arbitrate cross-department conflict the C-suite cannot resolve among themselves
-  - Hold the final go / no-go on irreversible or high-blast-radius actions
-  - Report company outcomes, risks, and trade-offs back to the founder-user
-  - Convene the Counselor for company-level deadlock or high-stakes strategic calls
-  - Govern budget posture (model spend / usage-window economics) with the CFO
-  - Sponsor and protect the guardrail policy as the user's pre-stated boundaries
+  - "Translate the founder-user's goals and guardrail policy into company direction"
+  - "Set and re-balance strategic priorities across all departments each cycle"
+  - "Arbitrate cross-department conflict the C-suite cannot resolve among themselves"
+  - "Hold the final go / no-go on irreversible or high-blast-radius actions"
+  - "Report company outcomes, risks, and trade-offs back to the founder-user"
+  - "Convene the Counselor for company-level deadlock or high-stakes strategic calls"
+  - "Govern budget posture (model spend / usage-window economics) with the CFO"
+  - "Sponsor and protect the guardrail policy as the user's pre-stated boundaries"
 
 inputs:
   - type: "founder_goals"

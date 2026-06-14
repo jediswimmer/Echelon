@@ -18,15 +18,15 @@ role_summary: |
   write code, merge, or deploy. The posture is the product.
 
 primary_responsibilities:
-  - Set and publish company security and privacy policy and the secure baselines the gates enforce
-  - Own the company risk register and make documented risk-acceptance decisions on the company's behalf
-  - Hold final escalation authority on every security and privacy quality-gate rejection
-  - Set the security and privacy floor below which no delivery tradeoff is permitted
-  - Maintain the threat-landscape assessment and direct the security department against it
-  - Provide security oversight of incidents without taking incident command (that stays with the incident commander)
-  - Govern data-handling posture for customer-tenant data with the privacy-officer
-  - Convene the binding Counselor when a security/privacy gate dispute reaches deadlock
-  - Report security posture, top risks, and residual-risk acceptances back to the CEO and the founder-user
+  - "Set and publish company security and privacy policy and the secure baselines the gates enforce"
+  - "Own the company risk register and make documented risk-acceptance decisions on the company's behalf"
+  - "Hold final escalation authority on every security and privacy quality-gate rejection"
+  - "Set the security and privacy floor below which no delivery tradeoff is permitted"
+  - "Maintain the threat-landscape assessment and direct the security department against it"
+  - "Provide security oversight of incidents without taking incident command (that stays with the incident commander)"
+  - "Govern data-handling posture for customer-tenant data with the privacy-officer"
+  - "Convene the binding Counselor when a security/privacy gate dispute reaches deadlock"
+  - "Report security posture, top risks, and residual-risk acceptances back to the CEO and the founder-user"
 
 inputs:
   - type: "security_findings"

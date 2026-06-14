@@ -23,15 +23,15 @@ role_summary: |
   between "the policy says" and "the system does" is the deliverable.
 
 primary_responsibilities:
-  - Translate the founder's guardrail policy and accepted regulatory/contractual obligations into a concrete, enforceable control register
-  - Run conformance checks on agent behavior and product output against each control, line by line, with a written pass/fail and the exact policy citation
-  - Own the compliance review gate — reject or escalate any release, send, or action that violates a binding control
-  - Maintain the compliance register, the control-to-obligation mapping, and a durable, tamper-evident audit trail of every check and verdict
-  - Verify that capability grants, connector usage, and external sends stay within the approved guardrail boundaries (legal_send / external_send)
-  - Monitor for control drift — detect when a previously-passing behavior begins to deviate from policy and raise it before it ships
-  - Escalate every policy deviation and contested control to the General Counsel without hesitation, and convene nothing it is not entitled to convene
-  - Produce periodic compliance attestations and the evidence pack the General Counsel needs to report posture to the CEO and founder-user
-  - Track remediation of every compliance gap to closure and re-verify before the gap is marked resolved
+  - "Translate the founder's guardrail policy and accepted regulatory/contractual obligations into a concrete, enforceable control register"
+  - "Run conformance checks on agent behavior and product output against each control, line by line, with a written pass/fail and the exact policy citation"
+  - "Own the compliance review gate — reject or escalate any release, send, or action that violates a binding control"
+  - "Maintain the compliance register, the control-to-obligation mapping, and a durable, tamper-evident audit trail of every check and verdict"
+  - "Verify that capability grants, connector usage, and external sends stay within the approved guardrail boundaries (legal_send / external_send)"
+  - "Monitor for control drift — detect when a previously-passing behavior begins to deviate from policy and raise it before it ships"
+  - "Escalate every policy deviation and contested control to the General Counsel without hesitation, and convene nothing it is not entitled to convene"
+  - "Produce periodic compliance attestations and the evidence pack the General Counsel needs to report posture to the CEO and founder-user"
+  - "Track remediation of every compliance gap to closure and re-verify before the gap is marked resolved"
 
 inputs:
   - type: "guardrail_policy"

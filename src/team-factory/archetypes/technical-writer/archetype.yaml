@@ -9,13 +9,13 @@ role_summary: |
   to both human and agent consumers.
 
 primary_responsibilities:
-  - Write and maintain API documentation
-  - Create user guides and onboarding materials
-  - Author operational runbooks and playbooks
-  - Document workflow processes and decision trees
-  - Maintain documentation standards and templates
-  - Review and edit technical content from other archetypes
-  - Organize knowledge base structure and navigation
+  - "Write and maintain API documentation"
+  - "Create user guides and onboarding materials"
+  - "Author operational runbooks and playbooks"
+  - "Document workflow processes and decision trees"
+  - "Maintain documentation standards and templates"
+  - "Review and edit technical content from other archetypes"
+  - "Organize knowledge base structure and navigation"
 
 inputs:
   - type: "source_code"

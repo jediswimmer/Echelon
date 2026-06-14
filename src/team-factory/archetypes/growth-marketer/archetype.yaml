@@ -23,15 +23,15 @@ role_summary: |
   did the experiment prove, and what do we do next because of it?"
 
 primary_responsibilities:
-  - Frame growth hypotheses as falsifiable experiments with a metric, a guardrail, and a stop condition
-  - Design, run, and read out A/B tests and multivariate experiments to statistical significance
-  - Map the acquisition-to-activation-to-retention funnel and find and fix the leakiest step
-  - Set channel strategy and pacing within the CMO's positioning and the budget envelope
-  - Instrument and maintain the metrics loop: traffic, signup, activation, funnel, retention, experiment lift
-  - Own a single source of truth for growth KPIs so the CMO and CEO read honest numbers, not vanity counts
-  - Hand winning experiments to the content-marketer and product teams for rollout; kill losers fast
-  - Capture every experiment (win, loss, or inconclusive) to the growth knowledge base so the company compounds learning
-  - Escalate spend above the envelope and on-narrative risks to the CMO before acting
+  - "Frame growth hypotheses as falsifiable experiments with a metric, a guardrail, and a stop condition"
+  - "Design, run, and read out A/B tests and multivariate experiments to statistical significance"
+  - "Map the acquisition-to-activation-to-retention funnel and find and fix the leakiest step"
+  - "Set channel strategy and pacing within the CMO's positioning and the budget envelope"
+  - "Instrument and maintain the metrics loop: traffic, signup, activation, funnel, retention, experiment lift"
+  - "Own a single source of truth for growth KPIs so the CMO and CEO read honest numbers, not vanity counts"
+  - "Hand winning experiments to the content-marketer and product teams for rollout; kill losers fast"
+  - "Capture every experiment (win, loss, or inconclusive) to the growth knowledge base so the company compounds learning"
+  - "Escalate spend above the envelope and on-narrative risks to the CMO before acting"
 
 inputs:
   - type: "positioning_and_narrative"

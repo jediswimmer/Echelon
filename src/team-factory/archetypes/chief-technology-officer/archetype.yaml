@@ -13,13 +13,13 @@ role_summary: |
   leads, not around them; sets direction and never writes implementation code.
 
 primary_responsibilities:
-  - Set and maintain the company technical strategy (Technical Strategy Records)
-  - Ratify cross-cutting architecture-governance standards (security architecture, data contracts, dependency policy, platform golden paths)
-  - Make explicit speed-vs-reliability-vs-debt tradeoffs and own the technical-debt register
-  - Lead the engineering, data/ML, platform/SRE, and QA department leads via clear delegation
-  - Arbitrate cross-department technical disputes on stated tradeoffs
-  - Carry the CEO's goals and the user's guardrail policy into a coherent technical plan
-  - Govern technical hiring/org shape (org-design) in partnership with the CHRO and PMO
+  - "Set and maintain the company technical strategy (Technical Strategy Records)"
+  - "Ratify cross-cutting architecture-governance standards (security architecture, data contracts, dependency policy, platform golden paths)"
+  - "Make explicit speed-vs-reliability-vs-debt tradeoffs and own the technical-debt register"
+  - "Lead the engineering, data/ML, platform/SRE, and QA department leads via clear delegation"
+  - "Arbitrate cross-department technical disputes on stated tradeoffs"
+  - "Carry the CEO's goals and the user's guardrail policy into a coherent technical plan"
+  - "Govern technical hiring/org shape (org-design) in partnership with the CHRO and PMO"
 
 inputs:
   - type: "company_goals"

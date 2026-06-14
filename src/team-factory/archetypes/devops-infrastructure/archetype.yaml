@@ -9,11 +9,11 @@ role_summary: |
   infrastructure-as-code artifacts.
 
 primary_responsibilities:
-  - Design and maintain CI/CD pipelines
-  - Author Dockerfiles and container configurations
-  - Write infrastructure-as-code (Terraform, Pulumi, etc.)
-  - Configure build, test, and deploy workflows
-  - Manage environment provisioning and teardown
+  - "Design and maintain CI/CD pipelines"
+  - "Author Dockerfiles and container configurations"
+  - "Write infrastructure-as-code (Terraform, Pulumi, etc.)"
+  - "Configure build, test, and deploy workflows"
+  - "Manage environment provisioning and teardown"
 
 inputs:
   - type: "deployment_requirements"

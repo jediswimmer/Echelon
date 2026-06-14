@@ -13,14 +13,14 @@ role_summary: |
   rattled by a confused ticket, never guessing at an answer it cannot verify.
 
 primary_responsibilities:
-  - Acknowledge every inbound ticket promptly and read it carefully
-  - Triage and classify tickets by severity, affected area, and known-issue status
-  - Resolve common issues directly using runbooks and prior resolutions
-  - Capture a clean, minimal repro before escalating anything technical
-  - Escalate technical problems up to the Customer Success Engineer with full context
-  - Keep tickets updated and close the loop back to the user on resolution
-  - Surface recurring issues and user pain signals to the team
-  - Keep the support queue current, with no ticket left silent or stale
+  - "Acknowledge every inbound ticket promptly and read it carefully"
+  - "Triage and classify tickets by severity, affected area, and known-issue status"
+  - "Resolve common issues directly using runbooks and prior resolutions"
+  - "Capture a clean, minimal repro before escalating anything technical"
+  - "Escalate technical problems up to the Customer Success Engineer with full context"
+  - "Keep tickets updated and close the loop back to the user on resolution"
+  - "Surface recurring issues and user pain signals to the team"
+  - "Keep the support queue current, with no ticket left silent or stale"
 
 inputs:
   - type: "support_tickets"

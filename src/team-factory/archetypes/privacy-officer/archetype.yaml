@@ -9,13 +9,13 @@ role_summary: |
   and reviews data handling practices to protect user information.
 
 primary_responsibilities:
-  - Audit data flows for personally identifiable information (PII)
-  - Conduct privacy impact assessments (PIAs) for new features
-  - Verify GDPR and CCPA compliance requirements are met
-  - Review data retention and deletion policies
-  - Document data processing activities and legal bases
-  - Flag non-compliant data handling patterns in code reviews
-  - Maintain records of processing activities (ROPA)
+  - "Audit data flows for personally identifiable information (PII)"
+  - "Conduct privacy impact assessments (PIAs) for new features"
+  - "Verify GDPR and CCPA compliance requirements are met"
+  - "Review data retention and deletion policies"
+  - "Document data processing activities and legal bases"
+  - "Flag non-compliant data handling patterns in code reviews"
+  - "Maintain records of processing activities (ROPA)"
 
 inputs:
   - type: "source_code"

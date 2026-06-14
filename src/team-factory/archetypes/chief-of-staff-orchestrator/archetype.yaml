@@ -18,14 +18,14 @@ role_summary: |
   cross-season, and it is the first to know when anything stops moving.
 
 primary_responsibilities:
-  - Own the cron scheduler — dispatch every agent's heartbeat and cron job on schedule, reap dead leases, and re-dispatch missed beats
-  - Dispatch the DB-backed comms bus — deliver messages on every topic, enforce ordering, and clear backlog so no agent goes deaf
-  - Run model routing and usage-window arbitration across the model fleet — relocate agents down their fallback chains as windows deplete, defend critical roles' windows longest
-  - Route escalations to the correct executive, the global-incident-commander, or the Counselor — never let an escalation land nowhere
-  - Keep the global roster directory current so every agent can resolve delegation and comms targets
-  - Monitor the operational health of the control plane and surface degradation before it becomes an incident
-  - Execute the CEO's directives operationally — turn a decision into scheduled, dispatched, routed work
-  - Hand off cleanly to the global-incident-commander when an incident is declared, and resume orchestration when it clears
+  - "Own the cron scheduler — dispatch every agent's heartbeat and cron job on schedule, reap dead leases, and re-dispatch missed beats"
+  - "Dispatch the DB-backed comms bus — deliver messages on every topic, enforce ordering, and clear backlog so no agent goes deaf"
+  - "Run model routing and usage-window arbitration across the model fleet — relocate agents down their fallback chains as windows deplete, defend critical roles' windows longest"
+  - "Route escalations to the correct executive, the global-incident-commander, or the Counselor — never let an escalation land nowhere"
+  - "Keep the global roster directory current so every agent can resolve delegation and comms targets"
+  - "Monitor the operational health of the control plane and surface degradation before it becomes an incident"
+  - "Execute the CEO's directives operationally — turn a decision into scheduled, dispatched, routed work"
+  - "Hand off cleanly to the global-incident-commander when an incident is declared, and resume orchestration when it clears"
 
 inputs:
   - type: "ceo_directives"

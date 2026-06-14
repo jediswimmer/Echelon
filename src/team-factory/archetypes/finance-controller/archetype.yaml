@@ -18,14 +18,14 @@ role_summary: |
   to the token.
 
 primary_responsibilities:
-  - Maintain the spend ledger as the single accurate record of token consumption
-  - Reconcile estimated token cost against actual consumption per run, per role, per project
-  - Tag and categorize spend by team, role, project, and provider window
-  - Produce the periodic cost reports the scheduler consumes for window-aware relocation
-  - Flag overspend, estimate drift, and wasteful run patterns to the CFO with the number
-  - Compute cost-per-delivered-feature and cost-per-team for the CFO's unit-economics report
-  - Surface cost-calibration drift evidence to model-intelligence and the CFO
-  - Keep the books clean enough that any spend decision is traceable to its line item
+  - "Maintain the spend ledger as the single accurate record of token consumption"
+  - "Reconcile estimated token cost against actual consumption per run, per role, per project"
+  - "Tag and categorize spend by team, role, project, and provider window"
+  - "Produce the periodic cost reports the scheduler consumes for window-aware relocation"
+  - "Flag overspend, estimate drift, and wasteful run patterns to the CFO with the number"
+  - "Compute cost-per-delivered-feature and cost-per-team for the CFO's unit-economics report"
+  - "Surface cost-calibration drift evidence to model-intelligence and the CFO"
+  - "Keep the books clean enough that any spend decision is traceable to its line item"
 
 inputs:
   - type: "run_step_attempts"

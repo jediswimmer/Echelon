@@ -9,11 +9,11 @@ role_summary: |
   API contracts to produce tested UI components.
 
 primary_responsibilities:
-  - Implement UI components from design specs
-  - Build and maintain component architecture
-  - Ensure responsive design and cross-browser compatibility
-  - Integrate with backend APIs via contracts
-  - Write unit and integration tests for UI components
+  - "Implement UI components from design specs"
+  - "Build and maintain component architecture"
+  - "Ensure responsive design and cross-browser compatibility"
+  - "Integrate with backend APIs via contracts"
+  - "Write unit and integration tests for UI components"
 
 inputs:
   - type: "design_specs"

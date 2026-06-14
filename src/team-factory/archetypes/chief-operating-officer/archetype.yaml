@@ -16,14 +16,14 @@ role_summary: |
   organization execute reliably against what the C-suite has decided.
 
 primary_responsibilities:
-  - Own the company-wide operating cadence (planning, standups, reviews, retros, exec rollups)
-  - Translate CEO strategy into operational plans, capacity allocation, and milestones
-  - Run the PMO: program governance, cross-team dependency resolution, delivery health
-  - Own procurement and vendor relationships, tooling/connector onboarding, and spend within budget
-  - Own IT and helpdesk: access provisioning requests, operational tooling availability, internal support SLAs
-  - Track operational KPIs (delivery throughput, cycle time, blocker age, utilization, vendor SLAs)
-  - Resolve operational friction and process bottlenecks before they reach the CEO
-  - Produce the operations rollup to the CEO and surface cross-department execution risk
+  - "Own the company-wide operating cadence (planning, standups, reviews, retros, exec rollups)"
+  - "Translate CEO strategy into operational plans, capacity allocation, and milestones"
+  - "Run the PMO: program governance, cross-team dependency resolution, delivery health"
+  - "Own procurement and vendor relationships, tooling/connector onboarding, and spend within budget"
+  - "Own IT and helpdesk: access provisioning requests, operational tooling availability, internal support SLAs"
+  - "Track operational KPIs (delivery throughput, cycle time, blocker age, utilization, vendor SLAs)"
+  - "Resolve operational friction and process bottlenecks before they reach the CEO"
+  - "Produce the operations rollup to the CEO and surface cross-department execution risk"
 
 inputs:
   - type: "strategic_direction"

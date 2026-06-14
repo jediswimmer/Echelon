@@ -9,13 +9,13 @@ role_summary: |
   and Play Store submission compliance.
 
 primary_responsibilities:
-  - Build and maintain Android applications in Kotlin and Jetpack Compose
-  - Implement Material Design patterns and Android platform conventions
-  - Write and maintain JUnit, Espresso, and Compose test suites
-  - Optimize app performance, memory usage, and battery impact
-  - Ensure compliance with Play Store policies and guidelines
-  - Integrate Android-specific APIs (CameraX, WorkManager, ML Kit, etc.)
-  - Manage Gradle builds, signing, and release workflows
+  - "Build and maintain Android applications in Kotlin and Jetpack Compose"
+  - "Implement Material Design patterns and Android platform conventions"
+  - "Write and maintain JUnit, Espresso, and Compose test suites"
+  - "Optimize app performance, memory usage, and battery impact"
+  - "Ensure compliance with Play Store policies and guidelines"
+  - "Integrate Android-specific APIs (CameraX, WorkManager, ML Kit, etc.)"
+  - "Manage Gradle builds, signing, and release workflows"
 
 inputs:
   - type: "source_code"

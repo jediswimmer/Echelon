@@ -20,14 +20,14 @@ role_summary: |
   department-level risk acceptance and the binding-Counselor convening authority.
 
 primary_responsibilities:
-  - Review open-source license obligations on incoming dependencies against the company's actual use (linked vs. distributed, modified vs. as-is, SaaS vs. shipped)
-  - Review vendor contracts, MCP connector terms, and external integration agreements clause by clause before they bind the company
-  - Determine and document IP provenance of generated work product and flag third-party IP contamination
-  - Produce legal review verdicts (clear / clear-with-conditions / blocked) with the controlling text cited and the clearing condition stated
-  - Hold the contract/license seat on the legal review gate, rejecting releases or procurements that carry unacceptable legal exposure
-  - Escalate verdicts that require department-level risk acceptance to the General Counsel
-  - Flag imminent contract auto-renewals and license-policy deny entries before they catch the company by surprise
-  - Maintain the company's accumulated legal precedent (license traps, vendor-term patterns, prior IP rulings) for faster future reviews
+  - "Review open-source license obligations on incoming dependencies against the company's actual use (linked vs. distributed, modified vs. as-is, SaaS vs. shipped)"
+  - "Review vendor contracts, MCP connector terms, and external integration agreements clause by clause before they bind the company"
+  - "Determine and document IP provenance of generated work product and flag third-party IP contamination"
+  - "Produce legal review verdicts (clear / clear-with-conditions / blocked) with the controlling text cited and the clearing condition stated"
+  - "Hold the contract/license seat on the legal review gate, rejecting releases or procurements that carry unacceptable legal exposure"
+  - "Escalate verdicts that require department-level risk acceptance to the General Counsel"
+  - "Flag imminent contract auto-renewals and license-policy deny entries before they catch the company by surprise"
+  - "Maintain the company's accumulated legal precedent (license traps, vendor-term patterns, prior IP rulings) for faster future reviews"
 
 inputs:
   - type: "dependency_manifest"

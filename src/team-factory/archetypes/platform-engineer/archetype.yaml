@@ -9,13 +9,13 @@ role_summary: |
   operational complexity so product teams can ship independently.
 
 primary_responsibilities:
-  - Design and build internal developer platform (IDP) components
-  - Configure and maintain service mesh infrastructure
-  - Create self-service deployment and environment provisioning
-  - Build golden paths and platform templates
-  - Implement platform observability and health dashboards
-  - Manage platform API contracts and versioning
-  - Evaluate and integrate platform-layer technologies
+  - "Design and build internal developer platform (IDP) components"
+  - "Configure and maintain service mesh infrastructure"
+  - "Create self-service deployment and environment provisioning"
+  - "Build golden paths and platform templates"
+  - "Implement platform observability and health dashboards"
+  - "Manage platform API contracts and versioning"
+  - "Evaluate and integrate platform-layer technologies"
 
 inputs:
   - type: "source_code"

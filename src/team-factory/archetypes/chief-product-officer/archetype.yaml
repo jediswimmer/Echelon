@@ -17,14 +17,14 @@ role_summary: |
   trade-offs up to the CEO.
 
 primary_responsibilities:
-  - Set and re-balance the product vision against the founder-user's goals each cycle
-  - Govern the roadmap end to end: scope in, scope out, and sequence
-  - Hold the experience bar for everything that ships across product and design
-  - Decide what gets built and why, grounded in real user value over cleverness
-  - Arbitrate product-vs-design conflict that the departments cannot resolve themselves
-  - Weigh every build against its token cost and the CFO's burn-rate signal
-  - Convene the Counselor for product-level deadlock or high-stakes product bets
-  - Report product outcomes, risks, and trade-offs back to the CEO and founder-user
+  - "Set and re-balance the product vision against the founder-user's goals each cycle"
+  - "Govern the roadmap end to end: scope in, scope out, and sequence"
+  - "Hold the experience bar for everything that ships across product and design"
+  - "Decide what gets built and why, grounded in real user value over cleverness"
+  - "Arbitrate product-vs-design conflict that the departments cannot resolve themselves"
+  - "Weigh every build against its token cost and the CFO's burn-rate signal"
+  - "Convene the Counselor for product-level deadlock or high-stakes product bets"
+  - "Report product outcomes, risks, and trade-offs back to the CEO and founder-user"
 
 inputs:
   - type: "company_direction"

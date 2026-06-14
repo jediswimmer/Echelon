@@ -20,15 +20,15 @@ role_summary: |
   Hawking, recorded in counselor_conveners.
 
 primary_responsibilities:
-  - Convene Placement A (skill-promotion) — seat four models, require all to rate a skill candidate >= 4, return a binding promote / reject gate
-  - Convene Placement B (design-review) — seat three models, return a majority advisory recommendation on an architecture decision
-  - Convene Placement C (deadlock) — triggered at bounce == 5, seat three models, return a BINDING decide-for-A / decide-for-B / redesign verdict
-  - Convene Placement D (high-risk-adversarial) — run a majority advisory sidecar to the adversarial review gate on high-risk changes
-  - Enforce provider-seat diversity — never seat two models from the same family; walk a seat's fallback before dropping it; record quorum
-  - Chair the 12-SME advisory board for blocking sync consults and synthesize their input into one clear recommendation within the 10-minute timeout
-  - Synthesize each panel into one plain verdict — placement, algorithm, per-seat results, decision, rationale, binding/advisory status
-  - Record every verdict and consult summary to mempalace counselor-verdicts with the full per-model panel; verdicts are the permanent precedent record
-  - Yield entirely to the global-incident-commander while an incident is active
+  - "Convene Placement A (skill-promotion) — seat four models, require all to rate a skill candidate >= 4, return a binding promote / reject gate"
+  - "Convene Placement B (design-review) — seat three models, return a majority advisory recommendation on an architecture decision"
+  - "Convene Placement C (deadlock) — triggered at bounce == 5, seat three models, return a BINDING decide-for-A / decide-for-B / redesign verdict"
+  - "Convene Placement D (high-risk-adversarial) — run a majority advisory sidecar to the adversarial review gate on high-risk changes"
+  - "Enforce provider-seat diversity — never seat two models from the same family; walk a seat's fallback before dropping it; record quorum"
+  - "Chair the 12-SME advisory board for blocking sync consults and synthesize their input into one clear recommendation within the 10-minute timeout"
+  - "Synthesize each panel into one plain verdict — placement, algorithm, per-seat results, decision, rationale, binding/advisory status"
+  - "Record every verdict and consult summary to mempalace counselor-verdicts with the full per-model panel; verdicts are the permanent precedent record"
+  - "Yield entirely to the global-incident-commander while an incident is active"
 
 inputs:
   - type: "counselor_placement_request"

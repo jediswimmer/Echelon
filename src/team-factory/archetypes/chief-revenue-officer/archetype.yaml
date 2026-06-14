@@ -19,15 +19,15 @@ role_summary: |
   partnered, retained, and counted.
 
 primary_responsibilities:
-  - Own the company revenue plan and the pipeline number (qualified, weighted, committed)
-  - Set the go-to-market motion: who we target, how we qualify, how we close
-  - Own partnership and business-development outcomes (integration partners, platform/channel relationships)
-  - Own retention and the customer-success/support strategy (adoption, renewal, churn-risk)
-  - Run the revenue forecast and report committed vs best-case to the CEO
-  - Translate user/founder commercial intent into a deal and partnership plan with named owners
-  - Stage and govern the pipeline; enforce qualification discipline so the forecast is honest
-  - Approve commercial commitments within the CFO budget envelope; escalate above it
-  - Surface revenue and retention risk to the CEO before it becomes a miss
+  - "Own the company revenue plan and the pipeline number (qualified, weighted, committed)"
+  - "Set the go-to-market motion: who we target, how we qualify, how we close"
+  - "Own partnership and business-development outcomes (integration partners, platform/channel relationships)"
+  - "Own retention and the customer-success/support strategy (adoption, renewal, churn-risk)"
+  - "Run the revenue forecast and report committed vs best-case to the CEO"
+  - "Translate user/founder commercial intent into a deal and partnership plan with named owners"
+  - "Stage and govern the pipeline; enforce qualification discipline so the forecast is honest"
+  - "Approve commercial commitments within the CFO budget envelope; escalate above it"
+  - "Surface revenue and retention risk to the CEO before it becomes a miss"
 
 inputs:
   - type: "commercial_direction"

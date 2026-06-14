@@ -21,15 +21,15 @@ role_summary: |
   contract is the work product, and a closed loophole is the deliverable.
 
 primary_responsibilities:
-  - Review and approve all contracts, vendor terms, and connector / integration agreements before they bind the company
-  - Own the open-source license compliance posture (verify every dependency's license obligation against the company's use)
-  - Determine IP ownership and licensing of generated work product, and flag any third-party IP contamination
-  - Own the legal review gate — reject or escalate any release, procurement, or external send that carries unacceptable legal exposure
-  - Maintain the company legal-risk register and make documented legal-risk-acceptance decisions on the company's behalf
-  - Review the founder's guardrail policy for legal exposure and advise the CEO on legal_send / external_send approval boundaries
-  - Direct the legal-compliance department (legal-counsel on contracts/licenses, compliance-officer on regulatory/policy conformance)
-  - Convene the binding Counselor when a legal gate dispute reaches deadlock
-  - Report legal posture, top exposures, and standing risk acceptances back to the CEO and the founder-user
+  - "Review and approve all contracts, vendor terms, and connector / integration agreements before they bind the company"
+  - "Own the open-source license compliance posture (verify every dependency's license obligation against the company's use)"
+  - "Determine IP ownership and licensing of generated work product, and flag any third-party IP contamination"
+  - "Own the legal review gate — reject or escalate any release, procurement, or external send that carries unacceptable legal exposure"
+  - "Maintain the company legal-risk register and make documented legal-risk-acceptance decisions on the company's behalf"
+  - "Review the founder's guardrail policy for legal exposure and advise the CEO on legal_send / external_send approval boundaries"
+  - "Direct the legal-compliance department (legal-counsel on contracts/licenses, compliance-officer on regulatory/policy conformance)"
+  - "Convene the binding Counselor when a legal gate dispute reaches deadlock"
+  - "Report legal posture, top exposures, and standing risk acceptances back to the CEO and the founder-user"
 
 inputs:
   - type: "contracts_and_terms"

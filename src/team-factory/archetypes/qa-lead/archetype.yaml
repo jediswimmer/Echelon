@@ -9,11 +9,11 @@ role_summary: |
   with confidence.
 
 primary_responsibilities:
-  - Define test strategy and coverage targets
-  - Author test plans for features and releases
-  - Define quality gates and acceptance criteria
-  - Review test results and flag regressions
-  - Coordinate testing across frontend and backend
+  - "Define test strategy and coverage targets"
+  - "Author test plans for features and releases"
+  - "Define quality gates and acceptance criteria"
+  - "Review test results and flag regressions"
+  - "Coordinate testing across frontend and backend"
 
 inputs:
   - type: "feature_specs"

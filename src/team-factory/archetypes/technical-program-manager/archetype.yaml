@@ -9,13 +9,13 @@ role_summary: |
   as the connective tissue between multiple workstreams.
 
 primary_responsibilities:
-  - Coordinate cross-team technical programs and milestones
-  - Track inter-team dependencies and flag blockers
-  - Manage program-level risk identification and mitigation
-  - Facilitate technical decision-making across teams
-  - Maintain program status dashboards and stakeholder comms
-  - Drive post-mortem and retrospective processes
-  - Ensure alignment between engineering and business timelines
+  - "Coordinate cross-team technical programs and milestones"
+  - "Track inter-team dependencies and flag blockers"
+  - "Manage program-level risk identification and mitigation"
+  - "Facilitate technical decision-making across teams"
+  - "Maintain program status dashboards and stakeholder comms"
+  - "Drive post-mortem and retrospective processes"
+  - "Ensure alignment between engineering and business timelines"
 
 inputs:
   - type: "program_plans"

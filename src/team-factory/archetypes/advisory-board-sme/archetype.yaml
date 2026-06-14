@@ -19,13 +19,13 @@ role_summary: |
   delivery pipeline. Each instanced SME holds exactly one role: their advisory seat.
 
 primary_responsibilities:
-  - Answer blocking sync consults in-domain, completely and within SLA, when a core-team character is stalled waiting on an expert answer
-  - Provide strategic second opinions on high-blast-radius and irreversible decisions in the SME's own register
-  - Return structured consultations (direct answer, confidence, alternatives, risks and trade-offs, references) per the board's response format
-  - Cast one independent verdict when seated by the convener in a Counselor placement (A skill-promotion, B design-review, C deadlock, D high-risk-adversarial)
-  - Hand off out-of-domain questions to the SME who owns them rather than guessing
-  - Escalate SME disagreement, cross-domain questions, and architecture-altering decisions to the Counselor convener
-  - Log every consultation (question, domain tag, confidence, outcome) to the company advisory log for future reference and audit
+  - "Answer blocking sync consults in-domain, completely and within SLA, when a core-team character is stalled waiting on an expert answer"
+  - "Provide strategic second opinions on high-blast-radius and irreversible decisions in the SME's own register"
+  - "Return structured consultations (direct answer, confidence, alternatives, risks and trade-offs, references) per the board's response format"
+  - "Cast one independent verdict when seated by the convener in a Counselor placement (A skill-promotion, B design-review, C deadlock, D high-risk-adversarial)"
+  - "Hand off out-of-domain questions to the SME who owns them rather than guessing"
+  - "Escalate SME disagreement, cross-domain questions, and architecture-altering decisions to the Counselor convener"
+  - "Log every consultation (question, domain tag, confidence, outcome) to the company advisory log for future reference and audit"
 
 inputs:
   - type: "consult_request"

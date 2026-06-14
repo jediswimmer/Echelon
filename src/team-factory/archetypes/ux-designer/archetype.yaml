@@ -9,13 +9,13 @@ role_summary: |
   user experiences across all surfaces.
 
 primary_responsibilities:
-  - Create visual design mockups and prototypes
-  - Define interaction patterns and user flows
-  - Build and maintain the design system
-  - Produce design tokens and component specifications
-  - Collaborate with UX Researcher on research-informed design
-  - Review implemented UI against design specifications
-  - Maintain design asset libraries and style guides
+  - "Create visual design mockups and prototypes"
+  - "Define interaction patterns and user flows"
+  - "Build and maintain the design system"
+  - "Produce design tokens and component specifications"
+  - "Collaborate with UX Researcher on research-informed design"
+  - "Review implemented UI against design specifications"
+  - "Maintain design asset libraries and style guides"
 
 inputs:
   - type: "design_brief"

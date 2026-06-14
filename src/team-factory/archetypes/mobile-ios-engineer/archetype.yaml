@@ -9,13 +9,13 @@ role_summary: |
   compliance.
 
 primary_responsibilities:
-  - Build and maintain iOS applications in Swift and SwiftUI
-  - Implement iOS-specific UI patterns and platform conventions
-  - Write and maintain XCTest and XCUITest suites
-  - Optimize app performance, memory usage, and battery impact
-  - Ensure compliance with App Store Review Guidelines
-  - Integrate iOS-specific APIs (HealthKit, ARKit, CoreML, etc.)
-  - Manage signing, provisioning, and release workflows
+  - "Build and maintain iOS applications in Swift and SwiftUI"
+  - "Implement iOS-specific UI patterns and platform conventions"
+  - "Write and maintain XCTest and XCUITest suites"
+  - "Optimize app performance, memory usage, and battery impact"
+  - "Ensure compliance with App Store Review Guidelines"
+  - "Integrate iOS-specific APIs (HealthKit, ARKit, CoreML, etc.)"
+  - "Manage signing, provisioning, and release workflows"
 
 inputs:
   - type: "source_code"

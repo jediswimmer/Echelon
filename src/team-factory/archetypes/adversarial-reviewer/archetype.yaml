@@ -9,11 +9,11 @@ role_summary: |
   nothing passes review without being stress-tested.
 
 primary_responsibilities:
-  - Attempt to break implementations through edge cases
-  - Challenge design assumptions and happy-path thinking
-  - Identify failure modes and error handling gaps
-  - Stress-test API contracts and data validation
-  - Document discovered weaknesses and attack vectors
+  - "Attempt to break implementations through edge cases"
+  - "Challenge design assumptions and happy-path thinking"
+  - "Identify failure modes and error handling gaps"
+  - "Stress-test API contracts and data validation"
+  - "Document discovered weaknesses and attack vectors"
 
 inputs:
   - type: "implementation_artifacts"

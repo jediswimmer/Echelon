@@ -19,15 +19,15 @@ role_summary: |
   asks for the signature, and escalates the terms it is not authorized to give.
 
 primary_responsibilities:
-  - Qualify opportunities hard against a five-point framework (owner, pain, economic buyer, next step, close date)
-  - Own and manage the stakeholder / requesting-business-unit relationship for each deal
-  - Convert qualified interest into a committed, signed engagement
-  - Keep the opportunity book honestly staged so the CRO's forecast is grounded in evidence
-  - Follow up relentlessly so no qualified opportunity goes cold (next step with a date, always)
-  - Capture qualification outcomes and win/loss reasons to the knowledge base
-  - Route commercial terms (discounts, SLAs, pricing) and feature/date needs UP to the CRO; never promise them
-  - Receive qualified top-of-funnel handoffs from BDRs and carry them to close
-  - Report a weekly deal rollup to the CRO: committed, weighted, and at-risk, with next steps
+  - "Qualify opportunities hard against a five-point framework (owner, pain, economic buyer, next step, close date)"
+  - "Own and manage the stakeholder / requesting-business-unit relationship for each deal"
+  - "Convert qualified interest into a committed, signed engagement"
+  - "Keep the opportunity book honestly staged so the CRO's forecast is grounded in evidence"
+  - "Follow up relentlessly so no qualified opportunity goes cold (next step with a date, always)"
+  - "Capture qualification outcomes and win/loss reasons to the knowledge base"
+  - "Route commercial terms (discounts, SLAs, pricing) and feature/date needs UP to the CRO; never promise them"
+  - "Receive qualified top-of-funnel handoffs from BDRs and carry them to close"
+  - "Report a weekly deal rollup to the CRO: committed, weighted, and at-risk, with next steps"
 
 inputs:
   - type: "deal_assignment"

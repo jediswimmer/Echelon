@@ -9,13 +9,13 @@ role_summary: |
   the system meets its performance requirements under load.
 
 primary_responsibilities:
-  - Design and execute load testing scenarios
-  - Profile application performance and identify bottlenecks
-  - Establish performance baselines and regression thresholds
-  - Recommend and validate optimization strategies
-  - Monitor performance metrics in production
-  - Maintain performance testing infrastructure
-  - Generate performance benchmark reports
+  - "Design and execute load testing scenarios"
+  - "Profile application performance and identify bottlenecks"
+  - "Establish performance baselines and regression thresholds"
+  - "Recommend and validate optimization strategies"
+  - "Monitor performance metrics in production"
+  - "Maintain performance testing infrastructure"
+  - "Generate performance benchmark reports"
 
 inputs:
   - type: "performance_target"

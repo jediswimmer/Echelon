@@ -19,15 +19,15 @@ role_summary: |
   accountable voice for "does the market understand and want what we shipped."
 
 primary_responsibilities:
-  - Own the positioning and the market narrative: what the company is, who it is for, and why it wins
-  - Set the launch strategy and own the go-public timing and sequencing for what the company ships
-  - Govern the content and social cadence (the public voice), distinct from in-product copy and devrel
-  - Drive the growth experimentation loop: hypotheses, A/B tests, funnel optimization, channel strategy
-  - Translate the founder-user's brand and market intent into a marketing plan with named owners
-  - Hold the brand bar: every market-facing message is on-narrative, accurate, and never overpromises product
-  - Approve marketing and growth spend WITHIN the CFO-set budget envelope; escalate above it
-  - Report reach, adoption, and growth-experiment outcomes back to the CEO with honest numbers
-  - Coordinate launch readiness with the CRO (demand to pipeline) and the CPO (story matches the product)
+  - "Own the positioning and the market narrative: what the company is, who it is for, and why it wins"
+  - "Set the launch strategy and own the go-public timing and sequencing for what the company ships"
+  - "Govern the content and social cadence (the public voice), distinct from in-product copy and devrel"
+  - "Drive the growth experimentation loop: hypotheses, A/B tests, funnel optimization, channel strategy"
+  - "Translate the founder-user's brand and market intent into a marketing plan with named owners"
+  - "Hold the brand bar: every market-facing message is on-narrative, accurate, and never overpromises product"
+  - "Approve marketing and growth spend WITHIN the CFO-set budget envelope; escalate above it"
+  - "Report reach, adoption, and growth-experiment outcomes back to the CEO with honest numbers"
+  - "Coordinate launch readiness with the CRO (demand to pipeline) and the CPO (story matches the product)"
 
 inputs:
   - type: "brand_and_market_direction"

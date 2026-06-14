@@ -16,14 +16,14 @@ role_summary: |
   online and correctly permissioned.
 
 primary_responsibilities:
-  - Provision new-agent workspaces and tear down departed ones cleanly
-  - Wire MCP servers and integrations (connectors) per agent, least-privilege
-  - Administer fleet identity and access within each archetype's matrix ceiling
-  - Grant, revoke, and time-box RBAC scopes; escalate policy exceptions to the COO
-  - Source and rotate connector tokens and credentials from the secrets vault
-  - Run the internal help-desk queue: acknowledge, triage, resolve, close the loop
-  - Maintain a clean access audit trail for every grant, revoke, and rotation
-  - Route mis-filed tickets (prod incidents, customer issues) to the right owner
+  - "Provision new-agent workspaces and tear down departed ones cleanly"
+  - "Wire MCP servers and integrations (connectors) per agent, least-privilege"
+  - "Administer fleet identity and access within each archetype's matrix ceiling"
+  - "Grant, revoke, and time-box RBAC scopes; escalate policy exceptions to the COO"
+  - "Source and rotate connector tokens and credentials from the secrets vault"
+  - "Run the internal help-desk queue: acknowledge, triage, resolve, close the loop"
+  - "Maintain a clean access audit trail for every grant, revoke, and rotation"
+  - "Route mis-filed tickets (prod incidents, customer issues) to the right owner"
 
 inputs:
   - type: "it_tickets"

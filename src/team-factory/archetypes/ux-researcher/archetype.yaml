@@ -9,13 +9,13 @@ role_summary: |
   across all project surfaces.
 
 primary_responsibilities:
-  - Plan and conduct user research studies
-  - Run usability testing sessions and analyze results
-  - Perform competitive analysis and benchmarking
-  - Synthesize research findings into actionable recommendations
-  - Maintain research repositories and insight libraries
-  - Collaborate with UX Designer on research-informed design
-  - Track user satisfaction and experience metrics
+  - "Plan and conduct user research studies"
+  - "Run usability testing sessions and analyze results"
+  - "Perform competitive analysis and benchmarking"
+  - "Synthesize research findings into actionable recommendations"
+  - "Maintain research repositories and insight libraries"
+  - "Collaborate with UX Designer on research-informed design"
+  - "Track user satisfaction and experience metrics"
 
 inputs:
   - type: "research_brief"

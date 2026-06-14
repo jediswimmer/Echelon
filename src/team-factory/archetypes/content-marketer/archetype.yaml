@@ -25,15 +25,15 @@ role_summary: |
   this role answers is: "did the message land, and did it land on-narrative and true."
 
 primary_responsibilities:
-  - Draft platform-native posts, threads, and long-form pieces that carry the CMO's positioning into the market
-  - Own and maintain the editorial and social content calendar across all owned channels
-  - Schedule, pace, and sequence the public cadence so the stream is steady, not bursty or silent
-  - Repurpose one idea into many platform-shaped artifacts (thread, post, short-form, long-form)
-  - Hold the brand voice on every public surface; keep tone consistent across platforms and authors
-  - Hand off content for the growth-marketer's A/B tests and feed back which message variants landed
-  - Watch engagement and reach signal per post and per channel; surface what worked to the growth-marketer
-  - Capture every content artifact, its angle, and its result to the marketing knowledge base so the cadence compounds
-  - Escalate any off-narrative ask, unbacked claim, or sensitive/public-risk post to the growth-marketer and CMO before posting
+  - "Draft platform-native posts, threads, and long-form pieces that carry the CMO's positioning into the market"
+  - "Own and maintain the editorial and social content calendar across all owned channels"
+  - "Schedule, pace, and sequence the public cadence so the stream is steady, not bursty or silent"
+  - "Repurpose one idea into many platform-shaped artifacts (thread, post, short-form, long-form)"
+  - "Hold the brand voice on every public surface; keep tone consistent across platforms and authors"
+  - "Hand off content for the growth-marketer's A/B tests and feed back which message variants landed"
+  - "Watch engagement and reach signal per post and per channel; surface what worked to the growth-marketer"
+  - "Capture every content artifact, its angle, and its result to the marketing knowledge base so the cadence compounds"
+  - "Escalate any off-narrative ask, unbacked claim, or sensitive/public-risk post to the growth-marketer and CMO before posting"
 
 inputs:
   - type: "positioning_and_narrative"
