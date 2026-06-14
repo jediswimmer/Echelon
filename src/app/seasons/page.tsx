@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Plus, RefreshCw, X, Loader2, ChevronDown, ChevronRight, ShieldCheck, ShieldAlert, ShieldOff, FolderGit2, Github, GitBranch, Sparkles, History, AlertTriangle } from 'lucide-react';
+import { Plus, RefreshCw, X, Loader2, ChevronDown, ChevronRight, ShieldCheck, ShieldAlert, ShieldOff, FolderGit2, Github, GitBranch, Sparkles, History, AlertTriangle, FolderSearch, FolderOpen } from 'lucide-react';
 import SeasonCard from '@/components/Echelon/SeasonCard';
 
 interface Season {
@@ -63,7 +63,7 @@ const INTAKE_OPTIONS: IntakeOption[] = [
 ];
 
 /** Where the season workspace lives / is linked to (chosen at kickoff). */
-type SourceControlMode = 'local' | 'github' | 'azure-devops';
+type SourceControlMode = 'local' | 'github' | 'azure-devops' | 'local-clone';
 
 interface SourceControlOption {
   value: SourceControlMode;
@@ -94,6 +94,13 @@ const SOURCE_CONTROL_OPTIONS: SourceControlOption[] = [
     caption: 'Clone an Azure DevOps repo via git (uses your git credentials).',
     Icon: GitBranch,
     repoPlaceholder: 'https://dev.azure.com/org/project/_git/repo',
+  },
+  {
+    value: 'local-clone',
+    label: 'Existing local clone',
+    caption:
+      'Point at a repo you’ve already cloned; Echelon validates it and works in isolated worktrees off it (your working copy is untouched).',
+    Icon: FolderSearch,
   },
 ];
 
@@ -304,6 +311,8 @@ function NewSeasonModal({
   const [showLinks, setShowLinks] = useState(false);
   const [sourceMode, setSourceMode] = useState<SourceControlMode>('local');
   const [repoUrl, setRepoUrl] = useState('');
+  /** Folder path for the "Existing local clone" source-control mode. */
+  const [localClonePath, setLocalClonePath] = useState('');
   const [jiraProjectKey, setJiraProjectKey] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -313,6 +322,19 @@ function NewSeasonModal({
   };
   const addRow = () => setRoster(prev => [...prev, { archetype: '', character: '' }]);
   const removeRow = (idx: number) => setRoster(prev => prev.filter((_, i) => i !== idx));
+
+  /** Open the native folder picker to choose an existing local clone. */
+  const browseForLocalClone = async () => {
+    const api = (window as unknown as {
+      electronAPI?: { dialog?: { openFolder: () => Promise<string | null> } };
+    }).electronAPI;
+    if (!api?.dialog?.openFolder) {
+      setError('Folder picker unavailable (not running in Electron). Type the clone path instead.');
+      return;
+    }
+    const picked = await api.dialog.openFolder();
+    if (picked) setLocalClonePath(picked);
+  };
 
   const handleSubmit = async () => {
     setError(null);

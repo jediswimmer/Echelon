@@ -3,17 +3,25 @@ import type { AgentStatus } from './index';
 export type SeasonStatus = 'spawning' | 'active' | 'paused' | 'archived' | 'restoring';
 
 /** Where the season workspace lives / is linked to. */
-export type SourceControlType = 'local' | 'github' | 'azure-devops';
+export type SourceControlType = 'local' | 'github' | 'azure-devops' | 'local-clone';
 
 /**
  * Optional source-control linkage for a season. `local` (or undefined) is the
  * default empty-git-init behavior. `github` / `azure-devops` clone the named
- * repo as the season workspace at spawn time.
+ * repo as the season workspace at spawn time. `local-clone` points at a folder
+ * that is ALREADY a local git clone: Echelon validates its git connection and
+ * uses it in place (no re-clone) as the season workspace, casting worktrees off
+ * it — the user's checked-out files are never mutated.
  */
 export interface SeasonSourceControl {
   type: SourceControlType;
   /** Repo identifier — `owner/repo` or full URL for GitHub, clone URL for AzDO. */
   repoUrl?: string;
+  /**
+   * Absolute path to an existing local git clone, used as the season workspace
+   * in-place (only for `type: 'local-clone'`). Resolved to a realpath at spawn.
+   */
+  localPath?: string;
 }
 
 /**

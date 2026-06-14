@@ -15,6 +15,7 @@ import { buildFullPath } from '../utils/path-builder';
 import { composeRosterFromPrd } from './composer';
 import { trustClaudeProjects } from './claude-trust';
 import { bootstrapRepoContext } from './repo-context';
+import { validateLocalClone } from './git-validate';
 import type { Season, SeasonStatus, SeasonSourceControl, SeasonIntake } from '../types/echelon';
 import type { AgentStatus, AgentPermissionMode, AppSettings } from '../types';
 import type { RosterManifestData, RosterCharacterEntry } from './roster-manager';
@@ -137,8 +138,10 @@ export async function spawnSeason(
     /**
      * Optional source-control linkage. When `type` is `github`/`azure-devops`
      * and a `repoUrl` is given, the named repo is CLONED as the season
-     * workspace (instead of an empty git init). `local` (or undefined) keeps
-     * the empty-init behavior.
+     * workspace (instead of an empty git init). When `type` is `local-clone`
+     * and a `localPath` is given, that EXISTING local clone is validated and
+     * used in-place as the season workspace (no re-clone). `local` (or
+     * undefined) keeps the empty-init behavior.
      */
     sourceControl?: SeasonSourceControl;
     /** Optional linked Jira project key — captured + stored + displayed only. */
@@ -154,17 +157,23 @@ export async function spawnSeason(
   deps: SeasonRuntimeDeps
 ): Promise<Season> {
   const seasonDir = path.join(SEASONS_DIR, config.id);
-  const workspacePath = path.join(seasonDir, 'workspace');
   const rosterManifestPath = path.join(seasonDir, 'roster.manifest.yaml');
   const charactersDir = path.join(seasonDir, 'characters');
 
   fs.mkdirSync(charactersDir, { recursive: true });
 
-  // Normalize the source-control linkage. A non-local type with a repoUrl means
-  // "clone this repo as the workspace"; anything else stays local (empty init).
+  // Normalize the source-control linkage:
+  //   • `local`/undefined          → no linkage (empty git init, prior behavior)
+  //   • `github`/`azure-devops`+url → clone the named repo as the workspace
+  //   • `local-clone`+localPath     → adopt an existing local clone in-place
   const sourceControl: SeasonSourceControl | undefined = (() => {
     const sc = config.sourceControl;
     if (!sc || sc.type === 'local') return undefined;
+    if (sc.type === 'local-clone') {
+      const localPath = sc.localPath?.trim();
+      if (!localPath) return undefined; // type set but no path ⇒ treat as local
+      return { type: 'local-clone', localPath };
+    }
     const repoUrl = sc.repoUrl?.trim();
     if (!repoUrl) return undefined; // type set but no repo ⇒ treat as local
     return { type: sc.type, repoUrl };
@@ -176,7 +185,26 @@ export async function spawnSeason(
   const intake: SeasonIntake = config.intake === 'brownfield' ? 'brownfield' : 'greenfield';
   const shouldBootstrapContext = intake === 'brownfield' || Boolean(sourceControl);
 
-  if (sourceControl) {
+  // The workspace path: for `local-clone` it is the validated existing clone
+  // (used in-place, never re-cloned); otherwise it is the Echelon-owned
+  // season-dir workspace that we clone into or empty-init. `let` because the
+  // local-clone branch reassigns it to the resolved clone path.
+  let workspacePath = path.join(seasonDir, 'workspace');
+
+  if (sourceControl?.type === 'local-clone') {
+    // Adopt an EXISTING local clone as the workspace. Validate its git
+    // connection first — on failure we abort the spawn with the surfaced error
+    // (the user asked for this clone; we never silently fall back).
+    const validation = await validateLocalClone(sourceControl.localPath!, deps.getAppSettings());
+    if (!validation.ok) {
+      throw new Error(`Local clone validation failed: ${validation.message}`);
+    }
+    // Use the realpath-resolved absolute clone path AS the workspace. We do NOT
+    // create or empty-init anything here — the user's working copy is untouched;
+    // cast agents only ever `git worktree add` branches off it (below).
+    workspacePath = validation.resolvedPath;
+    sourceControl.localPath = validation.resolvedPath; // persist the resolved path
+  } else if (sourceControl) {
     // Clone the linked repo AS the season workspace. The directory must NOT
     // pre-exist for `git clone <dir>` / `gh repo clone <dir>`. On failure we
     // surface a clear error — the user asked for the repo, so we never silently
@@ -239,7 +267,7 @@ export async function spawnSeason(
     tier: composedTier,
     roster: rosterEntries,
     source_control: sourceControl
-      ? { type: sourceControl.type, repo_url: sourceControl.repoUrl }
+      ? { type: sourceControl.type, repo_url: sourceControl.repoUrl, local_path: sourceControl.localPath }
       : undefined,
     jira_project_key: jiraProjectKey,
   };

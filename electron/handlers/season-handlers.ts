@@ -72,8 +72,11 @@ export function registerSeasonHandlers(deps: SeasonHandlerDependencies): void {
       character: string;
       capabilities: string[];
     }>;
-    /** Optional source-control linkage; non-local + repoUrl ⇒ clone as workspace. */
-    sourceControl?: { type: 'local' | 'github' | 'azure-devops'; repoUrl?: string };
+    /**
+     * Optional source-control linkage; `github`/`azure-devops` + repoUrl ⇒ clone
+     * as workspace; `local-clone` + localPath ⇒ adopt an existing clone in-place.
+     */
+    sourceControl?: { type: 'local' | 'github' | 'azure-devops' | 'local-clone'; repoUrl?: string; localPath?: string };
     /** Optional Jira project key — captured + stored + displayed only. */
     jiraProjectKey?: string;
     /** Intake mode: 'greenfield' (default) or 'brownfield' (existing repo). */

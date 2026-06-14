@@ -16,7 +16,7 @@ export interface RosterManifestData {
   channels?: Record<string, unknown>;
   user_context?: Record<string, unknown>;
   /** Source-control linkage (mirrors Season.sourceControl). Omitted ⇒ local. */
-  source_control?: { type: 'local' | 'github' | 'azure-devops'; repo_url?: string };
+  source_control?: { type: 'local' | 'github' | 'azure-devops' | 'local-clone'; repo_url?: string; local_path?: string };
   /** Linked Jira project key (mirrors Season.jiraProjectKey). */
   jira_project_key?: string;
 }
@@ -114,6 +114,9 @@ export function saveRosterManifest(manifestPath: string, manifest: RosterManifes
     lines.push(`source_control_type: ${manifest.source_control.type}`);
     if (manifest.source_control.repo_url) {
       lines.push(`source_control_repo_url: ${manifest.source_control.repo_url}`);
+    }
+    if (manifest.source_control.local_path) {
+      lines.push(`source_control_local_path: ${manifest.source_control.local_path}`);
     }
   }
   if (manifest.jira_project_key) {

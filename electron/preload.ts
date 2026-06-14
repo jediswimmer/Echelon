@@ -725,9 +725,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
       rosterEntries?: Array<{ archetype: string; character: string; capabilities: string[] }>;
       /**
        * Optional source-control linkage. `local` (or omitted) ⇒ empty git init;
-       * `github`/`azure-devops` with a `repoUrl` ⇒ clone the repo as the workspace.
+       * `github`/`azure-devops` with a `repoUrl` ⇒ clone the repo as the workspace;
+       * `local-clone` with a `localPath` ⇒ validate + use an existing local clone
+       * in-place as the workspace (no re-clone).
        */
-      sourceControl?: { type: 'local' | 'github' | 'azure-devops'; repoUrl?: string };
+      sourceControl?: { type: 'local' | 'github' | 'azure-devops' | 'local-clone'; repoUrl?: string; localPath?: string };
       /** Optional linked Jira project key (e.g. "SD") — captured + displayed only. */
       jiraProjectKey?: string;
       /**
