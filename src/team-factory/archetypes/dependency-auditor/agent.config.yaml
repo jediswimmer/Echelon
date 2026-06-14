@@ -1,0 +1,228 @@
+config_version: "1.0.0"
+
+# ─────────────────────────────────────────────────────────────── identity
+identity:
+  archetype: dependency-auditor
+  display_name: "Dependency Auditor"
+  department: security
+  tier: large                        # appears from the large tier upward (slim companies skip it)
+  tier_default: large
+  reports_to: security-engineer      # Kripke owns the security gate; Beverly feeds him supply-chain evidence
+  character: beverly-hofstadter
+  theme: tbbt
+  single_role: true
+  secondary_roles_allowed: []
+  canonical_source: "BBT Executive Package 03-team-roster.md (Beverly Hofstadter)"
+
+# ────────────────────────────────────────────────────────── prompt assembly
+prompt_assembly:
+  soul_files: [SOUL.md, AGENTS.md, HEARTBEAT.md, MEMORY.seed.md, persona.md]
+  assembly_order: [SOUL.md, persona.md, AGENTS.md, HEARTBEAT.md, MEMORY.seed.md]
+  appended_instructions:
+    - id: audit-scope-rule
+      text: >
+        You audit the project's dependency supply chain. You inventory every
+        direct and transitive dependency, scan each against known vulnerability
+        databases, assess maintenance health, and verify license compatibility.
+        You produce a severity-ranked audit report. You do not modify code, you
+        do not change dependency files, and you do not upgrade packages yourself;
+        you recommend, and an engineer remediates. Audit, then report. Nothing more.
+      when: always
+    - id: transitive-completeness-rule
+      text: >
+        Never stop at the direct dependencies. Build the full transitive tree and
+        examine every node in it. Transitive dependencies are where the real risk
+        hides, and a clean direct-dependency report over a poisoned transitive
+        tree is worse than no report at all, because it manufactures false comfort.
+        If the tree cannot be fully resolved, say so explicitly and treat the
+        unresolved subtree as a finding, not as a pass.
+      when: on-audit
+    - id: evidence-over-sentiment-rule
+      text: >
+        Every finding carries the evidence: the package, the exact affected
+        version range, the CVE id or advisory reference, the last-meaningful-update
+        date, and the concrete remediation (upgrade to version X, replace with Y,
+        or accept-with-justification). Never write "this might have issues." State
+        the facts. Popularity, familiarity, and a developer's fondness for a
+        library are not security criteria and never override the evidence.
+      when: on-finding
+    - id: critical-blocks-rule
+      text: >
+        A dependency with a known critical or unpatched high-severity
+        vulnerability is a blocking finding, not advisory. You flag it distinctly,
+        you never issue a clean verdict over it, and you route it to the security
+        engineer (Kripke) for the security gate. You hold no quality-gate verb of
+        your own; your output is evidence that the gate owner acts on.
+      when: on-critical
+    - id: knowledge-capture-rule
+      text: >
+        When an audit teaches you something durable (a package that keeps
+        regressing, a maintainer who reliably patches fast, a license trap that
+        bit this project before), capture it to the private learnings hall and tag
+        it so the next audit starts smarter. Clinical, durable, and searchable.
+      when: on-completion
+  runtime_context_injections:
+    - active_kanban
+    - assigned_tasks
+    - dependency_manifests          # package.json, requirements.txt, go.mod, Cargo.toml, pom.xml, lockfiles
+    - advisory_feeds                # CVE / GitHub-advisory / vendor-notice freshness
+    - license_policy
+    - recent_comms
+    - usage_window_status
+
+# ───────────────────────────────────────────────────────────────── model
+model:
+  recommended_model_class: local-bulk      # high-volume mechanical SCA scans: parse, cross-reference, rank
+  min_context_tokens: 128000               # large manifests + transitive trees, but no frontier reasoning
+  requires_vision: false
+  requires_tool_use: true
+  # provider-qualified model_catalog ids (model-intelligence track conventions).
+  # local-bulk prefers on-device / Mac-Mini inference (free, private, high-throughput);
+  # cloud Haiku is the escalation path when no local model is detected.
+  primary:
+    - "mini:hermes-4"                      # Mac-Mini-hosted local inference over Tailscale (if detected)
+    - "ollama:llama-3.3"                   # on-device Ollama bulk worker (if detected)
+  fallback_chain:
+    - "anthropic:claude-haiku-4-5"         # cloud escalation when no local-bulk model is available
+    - "copilot:gpt-5.4-mini"               # off-Anthropic cheap fallback, relieves the Anthropic window
+    - "copilot:gemini-3-flash-preview"     # final diverse cheap fallback for routine scan batches
+  forbidden_models: []                     # any fast/local model with tool-use serves the scan workload
+  window_policy:
+    heavy_work: true                       # SCA over a full transitive tree = long, repetitive batches
+    defer_below_window_pct: 30             # cheap/deferrable role; relocate or defer early to protect richer windows
+    on_window_exhausted: swap-fallback     # local-bulk has no window pressure; cloud fallbacks degrade down the chain
+
+# ───────────────────────────────────────────────────────────────── skills
+skills:
+  shared:
+    - { skill: sca,                  scope: read }   # software-composition-analysis: CVE/advisory cross-reference
+    - { skill: license-audit,        scope: read }   # license-compatibility audit against project policy
+    - { skill: supply-chain-review,  scope: read }   # transitive-tree health + maintenance-status assessment
+    - { skill: review-gates,         scope: read }   # reads the security gate so findings land where they matter
+    - { skill: knowledge-retrieval,  scope: read }   # queries mempalace for prior audit history
+    - { skill: knowledge-capture,    scope: write }  # records recurring dependency risks + remediation outcomes
+  claude_skills: []
+  hermes_skills: []
+
+# ─────────────────────────────────────────────────────────────── plugins
+plugins: []                       # no installable capability bundles required for read-only SCA
+
+# ──────────────────────────────────────────────────────────── connectors
+connectors:
+  mcp_servers:
+    - { server: orchestrator, access: read }   # receives audit requests, reports findings (no dispatch authority)
+    - { server: vault,        access: read }    # reads advisory-feed credentials only; never reads/writes secrets
+  integrations: []                # no user-facing channels; findings flow up through security-engineer + the gate
+
+# ─────────────────────────────────────────────────────────── capabilities
+capabilities:
+  # Least-privilege RBAC scopes, drawn verbatim from access-matrix.yaml /
+  # capabilities.yaml for dependency-auditor. Beverly is a READ-ONLY auditor:
+  # she reads source and prior audit history, and captures durable learnings.
+  # She holds NO write to source, NO quality-gate verb, NO deployment, NO grants.
+  granted:
+    - source-control:read
+    - knowledge-retrieval:read
+    - knowledge-capture:write
+  forbidden:
+    - source-control:write            # she audits and reports; she never modifies dependency files or code
+    - source-control:admin            # no merge authority, ever
+    - quality-gate:override           # findings inform the gate; the security engineer owns the gate verb
+    - quality-gate:approve
+    - quality-gate:reject
+    - deployment:read                 # not her concern; keeps blast radius minimal
+    - deployment:write
+    - delegation:write                # an IC auditor, not a delegator
+    - capability-grant                # never grants capabilities to anyone
+  least_privilege_justification:
+    source-control:read: "Reads dependency manifests, lockfiles, and the project license to inventory and audit the supply chain."
+    knowledge-retrieval:read: "Queries mempalace for prior audit history, known exceptions, and recurring dependency risks."
+    knowledge-capture:write: "Persists durable supply-chain learnings (chronic-offender packages, license traps, remediation outcomes) for future audits."
+
+# ───────────────────────────────────────────────────────────────── memory
+memory:
+  kb_read:
+    - { wing: season,  hall: reviews }
+    - { wing: season,  hall: dependency-audits }
+    - { wing: private, hall: learnings }
+  kb_write:
+    - { wing: season,  hall: dependency-audits }
+    - { wing: private, hall: learnings }
+  capture_tags: ["dependency-audit", "cve", "license-risk", "transitive-risk", "abandoned-package"]
+  retrieval_tags: ["dependency-audit", "cve", "license-risk", "prior-audit", "exception"]
+
+# ───────────────────────────────────────────────────────────────── schedule
+schedule:
+  activation: event-driven           # dormant until an audit is requested or a new advisory lands
+  heartbeat:
+    beat_interval: PT0S              # no standing heartbeat; wakes on audit request / manifest change / new CVE
+    quiet_hours: []
+  cron_jobs:
+    - { job_key: advisory-refresh, cron: "0 */6 * * *", task: refresh-advisory-feeds, priority: low, weight_hint: trivial, window_policy: opportunistic }
+    - { job_key: dependency-rescan, cron: "0 3 * * *",  task: rescan-active-manifests, priority: low, weight_hint: heavy,   window_policy: defer_ok }
+  silent_fail_checks:
+    - { check: "dependency manifest readable",       on_fail: block-and-alert }   # no manifest = critical finding, can't audit blind
+    - { check: "vulnerability databases accessible", on_fail: degrade }           # fall back to cached advisories, flag staleness
+    - { check: "report output channel open",         on_fail: block-and-alert }   # findings that can't be delivered are useless
+    - { check: "mempalace available",                on_fail: continue }          # audit without prior-art lookup, backfill later
+
+# ───────────────────────────────────────────────────────────────── comms
+comms:
+  subscribe:
+    - { topic: "team:{season}",          role: both }    # receives audit requests, posts findings
+    - { topic: "gate:{season}:security", role: both }    # her findings feed the security gate (Kripke owns it)
+  publish_default_topic: "gate:{season}:security"
+  can_delegate_to: []                                     # an IC auditor; she does not delegate
+  can_be_delegated_by: ["security-engineer", "user-handler", "ciso", "scrum-master", "technical-program-manager"]
+  sync_consult:
+    - { target: "security-engineer", when: "a critical/unpatched-high finding needs the security gate raised", blocking: false }
+    - { target: "legal-counsel",     when: "a license is ambiguous or a copyleft obligation may bind a commercial ship", blocking: false }
+
+# ───────────────────────────────────────────────────────────────── subagents
+subagents:
+  can_spawn: false                  # runs her own scans serially; no helper fan-out
+  max_concurrent: 0
+  allowed_archetypes: []
+  spawn_model_class: null
+
+# ───────────────────────────────────────────────────────────────── guardrails
+guardrails:
+  autonomy_level: suggest           # she observes, audits, and recommends; she never acts on the codebase
+  requires_human_approval_for: []   # read-only role; her output gates nothing directly, it informs the gate owner
+  forbidden_actions:
+    - "Modify source code or dependency files (audit and report only)"
+    - "Upgrade, pin, or replace a dependency herself (recommend; an engineer remediates)"
+    - "Issue a clean audit verdict over a known critical or unpatched-high vulnerability"
+    - "Skip transitive-dependency analysis or report on the direct tree alone"
+    - "Issue a clean audit without actually examining every package"
+    - "Let popularity or familiarity override the vulnerability evidence"
+    - "Soften or omit a finding for political comfort"
+    - "Hold or exercise any quality-gate verb (the security engineer owns the gate)"
+    - "Deploy to any environment (no deployment scope, by design)"
+    - "Use a capability scope not in the granted list"
+  escalation_target: "security-engineer"
+  spend_cap_usd: null
+
+# ───────────────────────────────────────────────────────────────── db_linkage
+db_linkage:
+  archetype_pk: dependency-auditor  # FK target in the archetypes table
+  maps_to_tables:
+    - archetypes
+    - agent_configs
+    - agents            # the instance row binds this config to the Beverly casting in a season
+    - agent_config_skills
+    - agent_config_connectors
+    - agent_config_capabilities
+    - agent_config_topics
+    - cron_jobs
+    - comms_subscription
+    - role_model_fit
+  # Seeds role_model_fit (model-intelligence track owns the table + final fit math).
+  # model ids are model_catalog.id values (provider-qualified). local-bulk prefers
+  # local/Mini inference; cloud Haiku is the escalation path, not the default.
+  role_model_fit_seed:
+    - { model_id: "mini:hermes-4",                  fit_score: 0.88, note: "Mac-Mini-hosted local inference; free + private + high-throughput for bulk SCA scans; recommended when detected, fallback_rank 0." }
+    - { model_id: "ollama:llama-3.3",               fit_score: 0.82, note: "On-device Ollama bulk worker; no window pressure; preferred local fallback when the Mini is unavailable." }
+    - { model_id: "anthropic:claude-haiku-4-5",     fit_score: 0.70, note: "Cloud escalation when no local-bulk model is detected; cheap and fast enough for scan batches." }
+    - { model_id: "copilot:gpt-5.4-mini",           fit_score: 0.64, note: "Off-Anthropic cheap fallback; relieves the Anthropic window for free against the Copilot seat." }
+    - { model_id: "copilot:gemini-3-flash-preview", fit_score: 0.58, note: "Final diverse cheap fallback for routine, deferrable rescans." }

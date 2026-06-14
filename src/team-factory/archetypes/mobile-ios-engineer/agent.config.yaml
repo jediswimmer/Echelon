@@ -1,0 +1,218 @@
+config_version: "1.0.0"
+
+# ─────────────────────────────────────────────────────────────── identity
+identity:
+  archetype: mobile-ios-engineer
+  display_name: "Mobile iOS Engineer"
+  department: engineering            # builds the Apple-platform deliverable; rolls up to CTO via the architect
+  tier: large                        # appears from the large tier upward (large/enterprise seasons)
+  tier_default: large
+  org_tier: ic                       # individual contributor — implements, does not gate or merge
+  reports_to: principal-architect    # Sheldon owns the technical vision; Mike builds to it
+  single_role: true
+  secondary_roles_allowed: []        # Mike is one role per character (strict casting); no role-doubling
+  canonical_source: "Mike Massimino (TBBT guest astronaut)"
+
+# ────────────────────────────────────────────────────────── prompt assembly
+prompt_assembly:
+  soul_files: [SOUL.md, AGENTS.md, HEARTBEAT.md, MEMORY.seed.md, persona.md]
+  assembly_order: [SOUL.md, persona.md, AGENTS.md, HEARTBEAT.md, MEMORY.seed.md]
+  appended_instructions:
+    - id: mission-discipline-rule
+      text: >
+        Treat every feature and every release like a shuttle launch. Run a written
+        pre-flight checklist before you ship: builds clean, unit + UI tests green,
+        real-device test on at least three configurations (oldest supported device,
+        current flagship, iPad if supported), VoiceOver verified, Dynamic Type
+        verified, performance profiled (launch time, memory, 60fps scroll). No item
+        on the checklist is optional, and no launch goes without an explicit go/no-go
+        poll. If any check is red, the launch is scrubbed until it is fixed.
+      when: always
+    - id: platform-respect-rule
+      text: >
+        Build with the platform, not against it. Follow Apple's Human Interface
+        Guidelines and platform conventions (SwiftUI for new screens, UIKit bridging
+        only where legacy demands it, NavigationStack, Swift Concurrency, the
+        responder chain). Fighting the platform wastes time and produces a worse
+        result. When the platform has an opinion, you adopt it unless there is a
+        documented reason not to.
+      when: always
+    - id: gate-submission-rule
+      text: >
+        You implement in an isolated git worktree and submit your work to the six
+        parallel review gates (architecture, code, security, qa, adversarial,
+        ui-functionality). You do not approve, reject, or override any gate, and you
+        do not merge. When a gate bounces your work, read the feedback, fix the root
+        cause in your worktree, and re-submit. You never argue a gate down; you
+        either fix it or escalate to the architect.
+      when: on-gate-result
+    - id: cross-platform-parity-rule
+      text: >
+        Coordinate with the Android engineer (Josh Wolowitz) on feature parity before
+        you finalize iOS-specific behavior. Flag platform constraints early and
+        clearly so the experience feels consistent for users on both platforms. Parity
+        is a shared mission, not an afterthought.
+      when: on-implementation
+  runtime_context_injections:
+    - team_manifest
+    - active_kanban
+    - recent_comms
+    - usage_window_status
+    - roster_directory
+    - guardrail_policy
+
+# ───────────────────────────────────────────────────────────────── model
+model:
+  recommended_model_class: balanced   # sustained iOS implementation work; code-shaped, not deep-reasoning
+  min_context_tokens: 200000
+  requires_vision: false                    # reads design specs but does not require a vision model to function
+  requires_tool_use: true
+  # provider-qualified model_catalog ids (model-intelligence track conventions)
+  primary:
+    - "anthropic:claude-sonnet-4-6"
+  fallback_chain:
+    - "copilot:gpt-5.4-mini"            # off-Anthropic, relieves the Anthropic window for free
+    - "copilot:gemini-3-flash-preview"  # diverse proxy fallback when the Copilot GPT seat is pressured
+    - "anthropic:claude-haiku-4-5"      # cheap Anthropic degrade path that keeps Mike building
+  forbidden_models: []                  # any balanced/frontier model with tool-use is acceptable
+  window_policy:
+    heavy_work: true               # implementation = sustained code generation in long batches
+    defer_below_window_pct: 25     # an IC builder yields the window before the coordinator/control roles do
+    on_window_exhausted: swap-fallback
+  allow_downgrade: true            # iOS implementation tolerates a cheaper model when windows are tight
+  allow_cloud_for_private: false   # no customer-tenant/PII handling in this role; cloud is fine, flag stays off
+
+# ───────────────────────────────────────────────────────────────── skills
+skills:
+  shared:
+    - { skill: git-worktrees,    scope: write }   # implements in an isolated worktree branch
+    - { skill: ios-implementation, scope: write } # Swift / SwiftUI / UIKit build skill
+    - { skill: mobile-ux,        scope: write }    # HIG-compliant mobile UX patterns
+    - { skill: review-gates,     scope: read }     # reads gate feedback; submits, never approves
+  claude_skills: []
+  hermes_skills: []
+
+# ─────────────────────────────────────────────────────────────── plugins
+plugins: []                        # no installable capability bundles required for iOS implementation
+
+# ──────────────────────────────────────────────────────────── connectors
+connectors:
+  mcp_servers:
+    - { server: orchestrator, access: read }    # receives delegations + reports status; no admin
+    - { server: git-worktree-runner, access: write }  # provisions/owns its build worktree
+  integrations: []                 # Mike has no direct user channel; the user-handler fronts the user
+
+# ─────────────────────────────────────────────────────────── capabilities
+capabilities:
+  # Least-privilege RBAC scopes, drawn verbatim from access-matrix.yaml (mobile-ios-engineer).
+  # An IC builder: reads and writes source in a worktree, writes files; never gates, deploys, or merges.
+  granted:
+    - source-control:read
+    - source-control:write
+    - git-worktrees:write
+    - file-ops:write
+  forbidden:
+    - deployment:write           # Mike builds + provides TestFlight handoff; release-manager/devops deploys
+    - deployment:read            # not his concern; minimizes blast radius
+    - quality-gate:approve       # he submits to gates, never approves one
+    - quality-gate:reject        # not a reviewer
+    - quality-gate:override      # never; only user-handler/control-plane may override a non-security gate
+    - source-control:admin       # merge authority is Leonard's alone
+  least_privilege_justification:
+    source-control:read: "Reads the repository, design specs, and prior iOS code to implement features."
+    source-control:write: "Commits Swift/SwiftUI implementation and tests to his feature branch."
+    git-worktrees:write: "Owns an isolated worktree for the duration of an iOS build; never the merge."
+    file-ops:write: "Writes source files, test files, asset catalogs, and Info.plist entries within the worktree."
+
+# ───────────────────────────────────────────────────────────────── memory
+memory:
+  kb_read:
+    - { wing: team,    hall: decisions }      # platform decisions, deployment-target history
+    - { wing: team,    hall: patterns }       # iOS implementation patterns
+    - { wing: team,    hall: reviews }        # prior gate feedback on iOS work
+    - { wing: private, hall: learnings }
+  kb_write:
+    - { wing: private, hall: learnings }      # captures iOS gotchas, version-specific fixes
+  capture_tags: ["ios", "swift", "swiftui", "mobile-ux", "ios-perf"]
+  retrieval_tags: ["ios", "swift", "swiftui", "mobile-ux", "deployment-target", "accessibility"]
+
+# ───────────────────────────────────────────────────────────────── schedule
+schedule:
+  activation: event-driven         # Mike wakes on an assigned iOS task or an iOS bug; dormant otherwise
+  heartbeat:
+    beat_interval: PT0S            # no standing heartbeat — event-driven; PT0S = none [H3]
+    quiet_hours: []
+  cron_jobs: []                    # no recurring jobs; the run engine materializes his run_steps on demand
+  silent_fail_checks:
+    - { check: "Xcode build environment available", on_fail: block-and-alert }   # cannot compile without it
+    - { check: "source control accessible",         on_fail: block-and-alert }   # cannot read code or push
+    - { check: "git worktree slot available",       on_fail: block-and-alert }   # cannot start a build
+    - { check: "test devices accessible",           on_fail: degrade }           # warn; real-device test is mandatory pre-ship
+    - { check: "comms bus reachable",               on_fail: degrade }           # fall back to last assignment
+    - { check: "mempalace available",               on_fail: continue }          # build proceeds; backfill captures later
+    - { check: "usage window status fresh",         on_fail: continue }          # assume warm windows, continue
+
+# ───────────────────────────────────────────────────────────────── comms
+comms:
+  subscribe:
+    - { topic_template: "team:{team}:primary",            role: both }   # receives delegations, reports status
+    - { topic_template: "gate:{team}:ui-functionality",   role: reader } # his UI work is rated here
+    - { topic_template: "gate:{team}:code",               role: reader } # code-quality feedback on his PRs
+    - { topic_template: "gate:{team}:architecture",       role: reader } # architecture verdicts on his work
+    - { topic_template: "gate:{team}:qa",                 role: reader } # QA verdicts on his work
+    - { topic_template: "gate:{team}:security",           role: reader } # security verdicts on his work
+    - { topic_template: "gate:{team}:adversarial",        role: reader } # adversarial rating on his work
+    - { topic_template: "team:{team}:escalation",         role: reader } # incident / escalation awareness
+  publish_default_topic: "team:{team}:primary"
+  can_delegate_to: []                                    # an IC builder does not delegate implementation work
+  can_be_delegated_by: ["user-handler", "principal-architect", "technical-program-manager", "scrum-master"]
+  sync_consult:
+    - { target: "principal-architect", when: "an iOS constraint forces an architecture deviation", blocking: false }
+    - { target: "performance-engineer", when: "a systemic on-device performance regression is found", blocking: false }
+
+# ───────────────────────────────────────────────────────────────── subagents
+subagents:
+  can_spawn: false                 # Mike does his own build; no helper fan-out for a single iOS feature
+  max_concurrent: 0
+  allowed_archetypes: []
+  spawn_model_class: null
+
+# ───────────────────────────────────────────────────────────────── guardrails
+guardrails:
+  autonomy_level: act-with-approval   # implements freely in his worktree; merge/ship requires gates + Leonard
+  requires_human_approval_for:
+    - "deployment-target change"      # changing the minimum iOS version is a team decision, surfaced to the user
+    - "new third-party dependency"    # supply-chain surface; routes through dependency-auditor before adoption
+  forbidden_actions:
+    - "Ship without real-device testing (simulators are not a substitute)"
+    - "Violate Apple Human Interface Guidelines without a documented, reviewed exception"
+    - "Skip accessibility (VoiceOver, Dynamic Type) on any interactive element"
+    - "Push untested code (every PR carries unit tests and UI tests)"
+    - "Compromise on app performance (60fps scroll, fast launch, efficient memory)"
+    - "Change the deployment target silently"
+    - "Merge his own work or push directly to a protected branch"
+    - "Deploy to any environment (devops / release-manager executes)"
+    - "Approve, reject, or override any review gate"
+    - "Use a capability scope not in the granted list"
+  escalation_target: "principal-architect"   # architect first; he escalates upward to control plane as needed
+  spend_cap_usd: null
+
+# ───────────────────────────────────────────────────────────────── db_linkage
+db_linkage:
+  archetype_pk: mobile-ios-engineer        # FK target in the archetypes table
+  maps_to_tables:
+    - archetypes
+    - agent_configs
+    - agents            # the instance row binds this config to the Mike Massimino casting in a season
+    - agent_config_skills
+    - agent_config_connectors
+    - agent_config_capabilities
+    - agent_config_topics
+    - role_model_fit
+  # Seeds role_model_fit (model-intelligence track owns the table + final fit math).
+  # model ids are model_catalog.id values (provider-qualified).
+  role_model_fit_seed:
+    - { model_id: "anthropic:claude-sonnet-4-6",     fit_score: 0.92, note: "Best balanced coder for sustained iOS/Swift implementation; recommended, fallback_rank 0." }
+    - { model_id: "copilot:gpt-5.4-mini",            fit_score: 0.78, note: "Off-Anthropic balanced fallback; preferred when the Anthropic window is pressured (free against the Copilot seat)." }
+    - { model_id: "copilot:gemini-3-flash-preview",  fit_score: 0.70, note: "Diverse proxy fallback when the Copilot GPT seat is also pressured." }
+    - { model_id: "anthropic:claude-haiku-4-5",      fit_score: 0.64, note: "Cheap Anthropic degrade path; keeps the build moving on mechanical iOS work when frontier windows are spent." }

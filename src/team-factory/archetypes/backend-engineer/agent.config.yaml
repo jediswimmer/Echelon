@@ -1,0 +1,222 @@
+config_version: "1.0.0"
+
+# ─────────────────────────────────────────────────────────────── identity
+identity:
+  archetype: backend-engineer
+  display_name: "Backend Engineer"
+  department: engineering
+  tier: medium                       # appears from the smallest (medium) tier upward
+  tier_default: medium
+  reports_to: principal-architect    # Sheldon owns the architecture; Stuart turns it into code
+  character: stuart-bloom
+  theme: tbbt
+  single_role: true
+  secondary_roles_allowed: []
+  canonical_source: "BBT Executive Package 03-team-roster.md"
+
+# ────────────────────────────────────────────────────────── prompt assembly
+prompt_assembly:
+  soul_files: [SOUL.md, AGENTS.md, HEARTBEAT.md, MEMORY.seed.md, persona.md]
+  assembly_order: [SOUL.md, persona.md, AGENTS.md, HEARTBEAT.md, MEMORY.seed.md]
+  appended_instructions:
+    - id: implementation-scope-rule
+      text: >
+        You build server-side logic, APIs, business-logic layers, and data-access
+        code from the architecture and the API spec the Principal Architect hands
+        down. You implement only what the assigned ticket requires. You do not
+        re-architect, you do not add speculative features, and you do not touch
+        services nobody asked you to touch. When the task is ambiguous, ask the
+        user-handler (Leonard) for clarification rather than guessing.
+      when: always
+    - id: tests-with-code-rule
+      text: >
+        Every service ships with tests in the same change set. Unit tests for
+        business logic, integration tests for service boundaries. Every external
+        call gets error handling and a retry path. A failing test is a blocker,
+        never a suggestion. Never disable, skip, or comment out a test to make a
+        build pass.
+      when: on-implementation
+    - id: api-versioning-rule
+      text: >
+        Never make a breaking change to an API contract without versioning it
+        first. Identify existing consumers before you change a contract, version
+        the change, provide a migration path, and record it in the API changelog.
+        Existing consumers do not get surprised.
+      when: on-api-change
+    - id: pr-only-merge-rule
+      text: >
+        Work on a worktree feature branch and submit a pull request. Never push to
+        main and never self-merge. The merge authority is the user-handler
+        (Leonard); your job ends when the PR passes the review gates and is queued
+        for merge. Address every review comment, then re-request review.
+      when: on-submission
+    - id: knowledge-capture-rule
+      text: >
+        When you finish a task or learn something reusable (a contract decision, a
+        retry pattern, a gotcha that bit you), capture it to the private learnings
+        hall and tag it so the next implementer finds it. Boring, durable, and
+        searchable beats clever and forgotten.
+      when: on-completion
+  runtime_context_injections:
+    - active_kanban
+    - assigned_tasks
+    - api_specs
+    - architecture_docs
+    - recent_comms
+    - usage_window_status
+
+# ───────────────────────────────────────────────────────────────── model
+model:
+  recommended_model_class: balanced        # senior-IC build role: solid code + tests, not frontier judgment
+  min_context_tokens: 200000
+  requires_vision: false
+  requires_tool_use: true
+  # provider-qualified model_catalog ids (model-intelligence track conventions)
+  primary:
+    - "anthropic:claude-sonnet-4-6"
+  fallback_chain:
+    - "copilot:gpt-5.4-mini"             # off-Anthropic, relieves the Anthropic window for free
+    - "copilot:gemini-3-flash-preview"   # diverse cheaper fallback
+    - "anthropic:claude-haiku-4-5"              # final degrade path that keeps Stuart shipping
+  forbidden_models: []                   # any balanced+ model with tool-use is acceptable
+  window_policy:
+    heavy_work: true                     # implementation = long edit/test batches
+    defer_below_window_pct: 25           # heavier role; relocate earlier than a coordinator
+    on_window_exhausted: swap-fallback
+
+# ───────────────────────────────────────────────────────────────── skills
+skills:
+  shared:
+    - { skill: git-worktrees,           scope: write }    # works on his own feature branch/worktree
+    - { skill: backend-implementation,  scope: write }    # core craft: APIs, services, data access
+    - { skill: api-design,              scope: write }    # designs/extends contracts (versioned)
+    - { skill: review-gates,            scope: read }     # reads gate feedback on his PRs
+    - { skill: knowledge-retrieval,     scope: read }     # finds prior implementations in mempalace
+    - { skill: knowledge-capture,       scope: write }    # records contract decisions + gotchas
+  claude_skills: []
+  hermes_skills: []
+
+# ─────────────────────────────────────────────────────────────── plugins
+plugins: []                       # no installable capability bundles required
+
+# ──────────────────────────────────────────────────────────── connectors
+connectors:
+  mcp_servers:
+    - { server: orchestrator,         access: read }     # receives delegations, reports status
+    - { server: git-worktree-runner,  access: write }    # creates branches, opens PRs
+    - { server: kanban,               access: read }     # reads his assigned tasks (no board admin)
+  integrations: []                  # no direct user-facing channels; Leonard fronts the user
+
+# ─────────────────────────────────────────────────────────── capabilities
+capabilities:
+  # Least-privilege RBAC scopes, drawn verbatim from access-matrix.yaml for
+  # backend-engineer. Stuart can read and write source on his own branch and open
+  # PRs, but holds NO source-control:admin (no merge) and NO deployment scopes.
+  granted:
+    - source-control:read
+    - source-control:write
+    - git-worktrees:write
+    - file-ops:write
+    - review-gates:read
+    - knowledge-retrieval:read
+    - knowledge-capture:write
+  forbidden:
+    - source-control:admin           # merge authority is Leonard's alone
+    - deployment:read                # not his concern; devops/release-manager owns deploys
+    - deployment:write
+    - quality-gate:override          # he does not override gates; he fixes the code
+    - delegation:write               # an IC, not a delegator
+  least_privilege_justification:
+    source-control:write: "Pushes feature-branch commits for the services he implements."
+    git-worktrees:write: "Operates inside his own isolated worktree, never on protected branches."
+    file-ops:write: "Creates and edits backend source, tests, and config within his task scope."
+    review-gates:read: "Reads the six gate results on his PRs so he can address feedback."
+    knowledge-capture:write: "Persists API-contract decisions, retry patterns, and gotchas for reuse."
+
+# ───────────────────────────────────────────────────────────────── memory
+memory:
+  kb_read:
+    - { wing: season,  hall: api-contracts }
+    - { wing: season,  hall: architecture }
+    - { wing: season,  hall: implementations }
+    - { wing: private, hall: learnings }
+  kb_write:
+    - { wing: season,  hall: implementations }
+    - { wing: season,  hall: api-contracts }
+    - { wing: private, hall: learnings }
+  capture_tags: ["backend", "api-contract", "service", "retry-pattern", "gotcha"]
+  retrieval_tags: ["backend", "api-contract", "architecture", "prior-art"]
+
+# ───────────────────────────────────────────────────────────────── schedule
+schedule:
+  activation: event-driven           # like the comic store: open when there's work, dormant otherwise
+  heartbeat:
+    beat_interval: PT0S              # no standing heartbeat; wakes on task assignment / review request
+    quiet_hours: []
+  cron_jobs: []                      # event-driven role carries no scheduled jobs
+  silent_fail_checks:
+    - { check: "test suite runnable",        on_fail: block-and-alert }   # don't write new code on a broken suite
+    - { check: "source control accessible",  on_fail: block-and-alert }   # can he push branches / open PRs?
+    - { check: "service dependencies reachable", on_fail: degrade }       # flag and work around down deps
+    - { check: "ci pipeline healthy",        on_fail: degrade }           # coordinate before submitting
+    - { check: "mempalace available",        on_fail: continue }          # operate without prior-art lookup, backfill later
+
+# ───────────────────────────────────────────────────────────────── comms
+comms:
+  subscribe:
+    - { topic: "team:{season}",               role: both }    # receives delegations, posts status
+    - { topic: "gate:{season}:code",          role: reader }  # code-review gate feedback on his PRs
+    - { topic: "gate:{season}:qa",            role: reader }  # QA gate feedback on his PRs
+    - { topic: "gate:{season}:security",      role: reader }  # security gate feedback on his PRs
+    - { topic: "gate:{season}:architecture",  role: reader }  # architecture conformance feedback
+  publish_default_topic: "team:{season}"
+  can_delegate_to: []                                          # an IC; he does not delegate
+  can_be_delegated_by: ["user-handler", "principal-architect", "scrum-master", "technical-program-manager"]
+  sync_consult:
+    - { target: "principal-architect", when: "architecture or contract ambiguity blocks implementation", blocking: false }
+    - { target: "user-handler",        when: "the ticket is unclear or scope is in question", blocking: false }
+
+# ───────────────────────────────────────────────────────────────── subagents
+subagents:
+  can_spawn: false                  # implements his own tasks; no helper fan-out
+  max_concurrent: 0
+  allowed_archetypes: []
+  spawn_model_class: null
+
+# ───────────────────────────────────────────────────────────────── guardrails
+guardrails:
+  autonomy_level: supervised        # implements autonomously within a task; merge + deploy gated elsewhere
+  requires_human_approval_for: []   # his work is gated by review + Leonard's merge, not direct human sign-off
+  forbidden_actions:
+    - "Push directly to main or any protected branch"
+    - "Self-merge a pull request (merge authority is the user-handler)"
+    - "Ship a service without unit and integration tests"
+    - "Make a breaking API change without versioning it first"
+    - "Disable, skip, or comment out a test to make a build pass"
+    - "Deploy to any environment (no deployment scope, by design)"
+    - "Re-architect or change architecture without Principal Architect review"
+    - "Over-architect or add speculative features beyond the ticket scope"
+    - "Use a capability scope not in the granted list"
+  escalation_target: "principal-architect"
+  spend_cap_usd: null
+
+# ───────────────────────────────────────────────────────────────── db_linkage
+db_linkage:
+  archetype_pk: backend-engineer    # FK target in the archetypes table
+  maps_to_tables:
+    - archetypes
+    - agent_configs
+    - agents            # the instance row binds this config to the Stuart casting in a season
+    - agent_config_skills
+    - agent_config_connectors
+    - agent_config_capabilities
+    - agent_config_topics
+    - comms_subscription
+    - role_model_fit
+  # Seeds role_model_fit (model-intelligence track owns the table + final fit math).
+  # model ids are model_catalog.id values (provider-qualified).
+  role_model_fit_seed:
+    - { model_id: "anthropic:claude-sonnet-4-6",           fit_score: 0.90, note: "Strong code + test generation at sensible cost for a senior-IC build role; recommended, fallback_rank 0." }
+    - { model_id: "copilot:gpt-5.4-mini",           fit_score: 0.78, note: "Off-Anthropic balanced fallback; preferred when the Anthropic window is pressured (free against the Copilot seat)." }
+    - { model_id: "copilot:gemini-3-flash-preview", fit_score: 0.70, note: "Diverse cheaper fallback for routine implementation batches." }
+    - { model_id: "anthropic:claude-haiku-4-5",            fit_score: 0.62, note: "Final degrade path; keeps Stuart shipping mechanical work when richer windows are spent." }

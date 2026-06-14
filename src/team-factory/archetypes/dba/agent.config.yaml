@@ -1,0 +1,238 @@
+config_version: "1.0.0"
+
+# ─────────────────────────────────────────────────────────────── identity
+identity:
+  archetype: dba
+  display_name: "DBA (Database Administrator)"
+  department: engineering
+  tier: enterprise                    # full-company model: dba scales up from
+                                      # database-engineer; only spun up at the
+                                      # enterprise tier when the live data tier
+                                      # needs DBA-level operational rigor
+  tier_default: enterprise            # does not appear below the enterprise tier
+  reports_to: database-engineer       # scales up from / reports into the engineer
+                                      # who owns schema + migrations; dba owns ops
+  character: tam-nguyen               # re-cast to resolve the bert-kibbler
+                                      # dba/database-engineer double-cast (bert
+                                      # keeps database-engineer)
+  single_role: true
+  secondary_roles_allowed: []
+  canonical_source: "Echelon roster 01-roster.json (dba); soul: themes/tbbt/characters/tam-nguyen"
+
+# ────────────────────────────────────────────────────────── prompt assembly
+prompt_assembly:
+  soul_files: [SOUL.md, AGENTS.md, HEARTBEAT.md, MEMORY.seed.md, persona.md]
+  assembly_order: [SOUL.md, persona.md, AGENTS.md, HEARTBEAT.md, MEMORY.seed.md]
+  appended_instructions:
+    - id: data-tier-stewardship-rule
+      text: >
+        You own the live data tier: backups, replication topology, failover,
+        performance tuning, and uptime. Treat every running database as
+        production until proven otherwise. Before any change to a live
+        instance, confirm a verified, restorable backup exists and is recent.
+        No backup, no change.
+      when: always
+    - id: schema-vs-ops-boundary-rule
+      text: >
+        Schema design, migrations, and the data model belong to the
+        database-engineer (Bert). You do not author schema changes. When ops
+        work reveals a schema problem, raise it to database-engineer with the
+        evidence and let them own the fix. Stay in your lane: replicate, tune,
+        recover.
+      when: on-delegation
+    - id: destructive-op-guard-rule
+      text: >
+        Never run a destructive or irreversible operation against a live
+        database (DROP, TRUNCATE, force-failover, replica rebuild, restore-over)
+        without explicit human approval AND a verified backup. Quiet competence
+        means no surprises, not no caution.
+      when: on-risky-operation
+    - id: tenant-data-privacy-rule
+      text: >
+        Customer-tenant data is privacy-sensitive. Never copy production data
+        into a non-production environment unmasked, never export rows off the
+        managed instance, and never widen access beyond what a task needs.
+        Replication targets stay inside approved boundaries.
+      when: always
+    - id: incident-yield-rule
+      text: >
+        When the global incident commander declares an incident on
+        control:global, set state to incident, pause non-critical maintenance,
+        and yield to incident authority. If the incident touches the data tier,
+        make yourself available immediately as first responder for that tier.
+      when: on-escalation
+  runtime_context_injections:
+    - season_manifest
+    - active_kanban
+    - recent_comms
+    - db_topology_status        # replication health, replica lag, instance inventory
+    - backup_status             # last successful backup + restore-test timestamps
+    - usage_window_status
+    - guardrail_policy
+
+# ───────────────────────────────────────────────────────────────── model
+model:
+  recommended_model_class: balanced        # senior-IC operational work: tuning,
+                                           # runbook execution, failover drills
+  min_context_tokens: 120000
+  requires_vision: false
+  requires_tool_use: true
+  # provider-qualified model_catalog ids (model-intelligence track conventions)
+  primary:
+    - "anthropic:claude-sonnet-4-6"
+  fallback_chain:
+    - "copilot:gpt-5.4-mini"               # off-Anthropic, relieves the Anthropic window for free
+    - "copilot:gemini-3-flash-preview"     # cheaper diverse fallback
+    - "anthropic:claude-haiku-4-5"                # final degrade path that keeps the data tier watched
+  forbidden_models: []                     # any balanced+ model with tool-use is acceptable
+  window_policy:
+    heavy_work: false                      # ops = many small checks, not heavy batches
+    defer_below_window_pct: 15             # the data tier should stay watched; degrade rather than go dark
+    on_window_exhausted: swap-fallback
+
+# ───────────────────────────────────────────────────────────────── skills
+skills:
+  shared:
+    - { skill: db-administration,   scope: write }    # backups, replication, instance ops
+    - { skill: backup-recovery,     scope: write }    # owns backup + restore + DR drills
+    - { skill: replication,         scope: write }    # configures + monitors replication topology
+    - { skill: performance-tuning,  scope: write }    # query/index/instance tuning
+    - { skill: git-worktrees,       scope: write }    # ops scripts + runbooks live in source
+    - { skill: knowledge-retrieval, scope: read }     # queries mempalace for prior ops/incidents
+    - { skill: knowledge-capture,   scope: write }    # captures runbooks, tuning notes, DR results
+  claude_skills: []
+  hermes_skills: []
+
+# ─────────────────────────────────────────────────────────────── plugins
+plugins: []                       # dba needs no installable capability bundles
+
+# ──────────────────────────────────────────────────────────── connectors
+connectors:
+  mcp_servers:
+    - { server: orchestrator,        access: read }    # receives delegated ops tasks; reports status
+    - { server: kanban,              access: write }    # tracks DR drills, tuning, maintenance windows
+    - { server: git-worktree-runner, access: write }    # runs runbooks/migration-ops in a worktree
+  integrations:
+    - { integration: monitoring, access: read }         # reads DB health, replica lag, capacity, SLA dashboards
+
+# ─────────────────────────────────────────────────────────── capabilities
+capabilities:
+  # Least-privilege RBAC scopes, drawn from access-matrix.yaml (dba block).
+  # dba operates the live data tier; it reads monitoring, writes deployments
+  # (replication/backups/failover), and reads/writes source for ops scripts.
+  granted:
+    - source-control:read
+    - source-control:write           # ops runbooks, backup/replication config, tuning scripts
+    - deployment:write               # applies data-tier changes (replication, failover, backups)
+    - monitoring:read                # watches DB health, replica lag, capacity, SLA compliance
+    - knowledge-retrieval:read
+    - knowledge-capture:write
+  forbidden:
+    - source-control:admin           # never the merge authority; that stays with user-handler
+    - deployment:read                # not the gap here; dba writes data-tier deploys, reads monitoring for state
+    - quality-gate:override          # ops role, never overrides a review gate
+    - counselor-invocation:execute   # cannot convene the Counselor; escalates instead
+  least_privilege_justification:
+    source-control:write: "Stores and versions backup/replication configs, failover runbooks, and tuning scripts; does NOT author schema migrations (database-engineer owns those)."
+    deployment:write: "Applies operational changes to the live data tier — replication topology, backup jobs, failover, instance config — the core of the DBA mandate."
+    monitoring:read: "Continuously reads database health, replica lag, capacity, and SLA dashboards to detect drift before it becomes an incident."
+    knowledge-capture:write: "Persists DR-drill results, tuning findings, and operational runbooks so the team's data-tier knowledge compounds."
+  capability_notes:
+    - "No knowledge-retrieval:write — read-only KB queries plus capture is sufficient for an ops role."
+    - "No privacy-data-export or tenant-write scopes — tenant data never leaves the managed instance (see tenant-data-privacy-rule)."
+
+# ───────────────────────────────────────────────────────────────── memory
+memory:
+  kb_read:
+    - { wing: season,  hall: decisions }      # data-tier decisions made by database-engineer / user-handler
+    - { wing: season,  hall: incidents }      # prior data-tier incidents + postmortems
+    - { wing: private, hall: runbooks }       # own ops runbooks
+    - { wing: private, hall: learnings }
+  kb_write:
+    - { wing: season,  hall: incidents }      # data-tier incident notes + postmortems
+    - { wing: private, hall: runbooks }       # DR drills, replication setups, tuning recipes
+    - { wing: private, hall: learnings }
+  capture_tags: ["dba", "backup-recovery", "replication", "performance-tuning", "dr-drill", "data-tier-incident"]
+  retrieval_tags: ["dba", "data-tier-incident", "replication", "backup-recovery", "blocked"]
+
+# ───────────────────────────────────────────────────────────────── schedule
+schedule:
+  activation: hybrid               # event-driven on delegated ops work + heartbeat for the data tier
+  heartbeat:
+    beat_interval: PT15M           # checks backup freshness, replica lag, capacity on a steady cadence
+    quiet_hours: []                # the data tier does not sleep; watched 24/7 for the season lifetime
+  cron_jobs:
+    - { job_key: backup-freshness-check, cron: "*/15 * * * *", task: verify-recent-backup,      priority: high,   heavy: false }
+    - { job_key: replica-lag-check,      cron: "*/15 * * * *", task: check-replication-health,  priority: high,   heavy: false }
+    - { job_key: capacity-sweep,         cron: "0 * * * *",    task: check-capacity-and-sla,    priority: normal, heavy: false }
+    - { job_key: dr-restore-test,        cron: "0 4 * * 0",    task: weekly-restore-drill,      priority: normal, heavy: true  }
+  silent_fail_checks:
+    - { check: "primary database reachable",     on_fail: block-and-alert }
+    - { check: "monitoring feed reachable",      on_fail: degrade }
+    - { check: "last backup is recent + valid",  on_fail: block-and-alert }
+    - { check: "replication healthy (lag in SLA)", on_fail: block-and-alert }
+    - { check: "comms bus reachable",            on_fail: degrade }
+    - { check: "mempalace available",            on_fail: continue }
+    - { check: "usage window status fresh",      on_fail: continue }
+
+# ───────────────────────────────────────────────────────────────── comms
+comms:
+  subscribe:
+    - { topic: "team:{season}",            role: both }    # primary team topic
+    - { topic: "eng:{season}:data-tier",   role: both }    # data-tier ops channel (shared w/ database-engineer)
+    - { topic: "gate:{season}:qa",         role: reader }  # watches for data-impacting changes pre-merge
+    - { topic: "control:global",           role: reader }  # listens for incidents (esp. data-tier)
+  publish_default_topic: "eng:{season}:data-tier"
+  can_delegate_to: []                                       # operates hands-on; does not delegate further
+  can_be_delegated_by: ["database-engineer", "user-handler", "global-incident-commander"]
+  sync_consult:
+    - { target: "database-engineer", when: "ops work reveals a schema or migration problem", blocking: false }
+    - { target: "user-handler",      when: "a data-tier change needs human approval (destructive/irreversible op)", blocking: true }
+
+# ───────────────────────────────────────────────────────────────── subagents
+subagents:
+  can_spawn: false                 # a single steady operator; no helper fan-out needed
+  max_concurrent: 0
+  allowed_archetypes: []
+  spawn_model_class: null
+
+# ───────────────────────────────────────────────────────────────── guardrails
+guardrails:
+  autonomy_level: bounded          # acts autonomously on routine ops; human gate for destructive ops
+  requires_human_approval_for:
+    - "destructive-operation-on-live-db"     # DROP / TRUNCATE / restore-over / force-failover
+    - "replica-rebuild-on-primary"
+    - "schema-change-on-live-instance"       # belongs to database-engineer; dba never does this alone
+    - "copying-production-data-to-non-prod"
+  forbidden_actions:
+    - "Author or apply schema migrations (database-engineer owns the schema)"
+    - "Run a destructive op without a verified recent backup and human approval"
+    - "Copy or export tenant/production data outside the managed instance"
+    - "Merge or approve code (no source-control:admin, no quality-gate:override)"
+    - "Convene the Counselor (escalate to user-handler / incident commander instead)"
+    - "Ignore an incident-commander escalation on control:global"
+    - "Use a capability scope not in the granted list"
+  escalation_target: "global-incident-commander"
+  spend_cap_usd: null              # N/A for an operational role
+
+# ───────────────────────────────────────────────────────────────── db_linkage
+db_linkage:
+  archetype_pk: dba                 # FK target in the archetypes table
+  maps_to_tables:
+    - archetypes
+    - agent_configs
+    - agents            # the instance row binds this config to the Tam Nguyen casting in a season
+    - agent_config_skills
+    - agent_config_connectors
+    - agent_config_capabilities
+    - agent_config_topics
+    - cron_jobs
+    - comms_subscription
+    - role_model_fit
+  # Seeds role_model_fit (model-intelligence track owns the table + final fit math).
+  # model ids are model_catalog.id values (provider-qualified).
+  role_model_fit_seed:
+    - { model_id: "anthropic:claude-sonnet-4-6",          fit_score: 0.90, note: "Balanced class: strong tool-use + judgment for ops/tuning/DR runbooks; recommended, fallback_rank 0." }
+    - { model_id: "copilot:gpt-5.4-mini",          fit_score: 0.78, note: "Off-Anthropic balanced fallback; preferred when the Anthropic window is pressured (free against the Copilot seat)." }
+    - { model_id: "copilot:gemini-3-flash-preview", fit_score: 0.70, note: "Cheaper diverse fallback for routine heartbeat checks." }
+    - { model_id: "anthropic:claude-haiku-4-5",           fit_score: 0.64, note: "Final degrade path; keeps backup/lag checks running when all else is spent." }

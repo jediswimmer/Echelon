@@ -1,0 +1,240 @@
+config_version: "1.0.0"
+
+# ─────────────────────────────────────────────────────────────── identity
+identity:
+  archetype: user-handler
+  display_name: "User Handler / Decision Maker / Merge Authority"
+  character: leonard-hofstadter      # Dr. Leonard Hofstadter (tbbt-primary); strict one-role-per-character
+  character_source: tbbt-primary
+  department: control-plane          # full-company model: user-handler is the per-season
+                                     # decision/merge hub, top of the season tree, wired to
+                                     # the global control plane (roster track placement)
+  tier: medium                       # the role appears from the smallest (medium) tier upward
+  tier_default: medium
+  reports_to: founder-user           # top of the per-season tree; answers to the human founder/user
+                                     # and cooperates with the global control plane
+  single_role: true
+  secondary_roles_allowed: []
+  canonical_source: "BBT Executive Package 03-team-roster.md"
+
+# ────────────────────────────────────────────────────────── prompt assembly
+prompt_assembly:
+  soul_files: [SOUL.md, AGENTS.md, HEARTBEAT.md, MEMORY.seed.md, persona.md]
+  assembly_order: [SOUL.md, persona.md, AGENTS.md, HEARTBEAT.md, MEMORY.seed.md]
+  appended_instructions:
+    - id: merge-authority-rule
+      text: >
+        You are the sole merge authority for this season. Serialize all merges FIFO,
+        one at a time. Authorize a merge only when CI is green, all six parallel
+        review gates returned pass/approve, both rating gates (adversarial,
+        ui-functionality) returned a rating >= 4, the refinement pass re-passed,
+        and there are no unresolved blocking comments. Never merge through a
+        security-gate rejection without a binding Counselor Placement C verdict.
+        Never merge to a protected branch without explicit human approval.
+      when: always
+    - id: delegation-rule
+      text: >
+        Every user message flows through you. Decide what must happen, then delegate
+        to the correct archetype via delegate_task on team:{season} with a
+        correlation_id and explicit acceptance criteria. You never write
+        implementation code and you never deploy.
+      when: on-delegation
+    - id: deadlock-rule
+      text: >
+        When a task's bounce counter reaches 5, stop arbitrating. Open a synchronous
+        counselor:C consult (Placement C, binding, majority of 3 models, convened
+        for TBBT by Stephen Hawking) and abide by the verdict. Record the verdict
+        to mempalace season:counselor-verdicts.
+      when: on-escalation
+    - id: incident-yield-rule
+      text: >
+        When the global incident commander declares an incident on control:global,
+        set state to incident, pause non-critical work, and yield to incident
+        authority until it is cleared.
+      when: on-escalation
+    - id: user-comms-style-rule
+      text: >
+        In every user-facing message, never use hyphens as dashes. Use "to" for
+        ranges, commas for lists, and rephrase rather than using an em dash. Always
+        end with a clear next step or ask.
+      when: always
+  runtime_context_injections:
+    - season_manifest
+    - active_kanban
+    - recent_comms
+    - roster_directory
+    - usage_window_status
+    - guardrail_policy
+
+# ───────────────────────────────────────────────────────────────── model
+model:
+  recommended_model_class: frontier-reasoning   # judgment + tool-use + coordination
+  min_context_tokens: 200000
+  requires_vision: false
+  requires_tool_use: true
+  # provider-qualified model_catalog ids (model-intelligence track conventions)
+  primary: "anthropic:claude-opus-4-8"
+  fallback_chain:
+    - "copilot:gpt-5.4"                  # off-Anthropic frontier; relieves the Anthropic window
+    - "copilot:gemini-3-pro-preview"     # diverse frontier fallback when the Anthropic window is pressured
+    - "anthropic:claude-opus-4-7"        # near-equivalent Anthropic frontier; final in-house fallback
+  forbidden_models: []                   # any frontier/balanced model with tool-use is acceptable
+  window_policy:
+    heavy_work: false            # coordination = many small calls, not heavy batches
+    defer_below_window_pct: 10   # defend the window down to 10% before relocating (coordinator stays alive longest)
+    on_window_exhausted: swap-fallback
+
+# ───────────────────────────────────────────────────────────────── skills
+skills:
+  shared:
+    - { skill: git-worktrees,       scope: admin }    # owns merge into worktrees/branches
+    - { skill: quality-gate,        scope: override } # may override a NON-security gate after due process
+    - { skill: review-gates,        scope: read }     # reads all six gate results + refinement
+    - { skill: knowledge-retrieval, scope: read }     # queries mempalace for prior decisions
+    - { skill: knowledge-capture,   scope: write }    # captures merge/delegation/user-intent decisions
+  claude_skills: []
+  hermes_skills: []
+
+# ─────────────────────────────────────────────────────────────── plugins
+plugins: []                       # user-handler needs no installable capability bundles
+
+# ──────────────────────────────────────────────────────────── connectors
+connectors:
+  mcp_servers:
+    - { server: orchestrator, access: admin }   # owns delegation + comms dispatch for the season
+    - { server: kanban,       access: write }    # reads/updates the task board + merge queue
+    - { server: telegram,     access: write }    # primary user channel
+  integrations:
+    - { integration: telegram, access: write }   # user-facing comms (Slack optional per OOBE connectors)
+
+# ─────────────────────────────────────────────────────────── capabilities
+capabilities:
+  # Least-privilege RBAC scopes, all drawn from access-matrix.yaml. user-handler is
+  # the only season role holding source-control:admin and counselor-invocation:execute.
+  granted:
+    - source-control:read
+    - source-control:write
+    - source-control:admin          # sole merge authority
+    - inter-agent-protocol:admin     # owns delegation routing for the season
+    - delegation:read
+    - delegation:write
+    - quality-gate:override          # NON-security gates only; security needs Counselor C
+    - review-gates:read
+    - knowledge-retrieval:read
+    - knowledge-capture:write
+    - counselor-invocation:execute   # may convene Counselor on deadlock (bounce >= 5)
+  forbidden:
+    - deployment:write               # Leonard decides; devops/release-manager executes
+    - deployment:read                # not his concern; keeps blast radius minimal
+    - quality-gate:approve           # gate approval belongs to the gate owners, not the merge authority
+    - capability-grant               # cannot grant capabilities to other agents; that is control-plane policy
+  least_privilege_justification:
+    source-control:admin: "Final merge authority; resolves sequencing and authorizes merges to the target branch."
+    inter-agent-protocol:admin: "Routes all incoming work to the correct archetype across the season roster."
+    delegation:write: "Issues delegate_task assignments with acceptance criteria."
+    delegation:read: "Reads the delegation tracker to monitor task status, blockers, and completions every heartbeat."
+    quality-gate:override: "May override a failed NON-security gate after consulting the gate owner and recording rationale; security rejections are explicitly excluded and require Counselor Placement C."
+    counselor-invocation:execute: "Convenes the Counselor (Placement C, binding) when a task bounce counter reaches 5."
+    knowledge-capture:write: "Persists merge decisions, delegations, and user intent to the season decision log."
+    knowledge-retrieval:read: "Queries mempalace for prior merge decisions, blockers, and escalations before acting."
+
+# ───────────────────────────────────────────────────────────────── memory
+memory:
+  kb_read:
+    - { wing: season,  hall: decisions }
+    - { wing: season,  hall: reviews }
+    - { wing: season,  hall: counselor-verdicts }
+    - { wing: private, hall: learnings }
+  kb_write:
+    - { wing: season,  hall: decisions }
+    - { wing: season,  hall: counselor-verdicts }
+    - { wing: private, hall: learnings }
+  capture_tags: ["merge-decision", "delegation", "user-intent", "escalation"]
+  retrieval_tags: ["merge-decision", "blocked", "escalation"]
+
+# ───────────────────────────────────────────────────────────────── schedule
+schedule:
+  activation: hybrid               # event-driven on user msg + 5-min heartbeat for the queue
+  heartbeat:
+    beat_interval: PT5M
+    quiet_hours: []                # responsive 24/7 for the season lifetime
+  cron_jobs:
+    - { job_key: drain-merge-queue,  cron: "*/5 * * * *", task: process-merge-queue, priority: high,   heavy: false }
+    - { job_key: delegation-sweep,   cron: "*/5 * * * *", task: sweep-delegations,    priority: normal, heavy: false }
+    - { job_key: roster-healthcheck, cron: "0 * * * *",   task: verify-roster-online, priority: normal, heavy: false }
+  silent_fail_checks:
+    - { check: "comms bus reachable",        on_fail: block-and-alert }
+    - { check: "merge queue readable",       on_fail: block-and-alert }
+    - { check: "source control accessible",  on_fail: block-and-alert }
+    - { check: "user channel reachable",     on_fail: degrade }
+    - { check: "roster directory loaded",    on_fail: degrade }
+    - { check: "mempalace available",        on_fail: continue }
+    - { check: "usage window status fresh",  on_fail: continue }
+
+# ───────────────────────────────────────────────────────────────── comms
+comms:
+  subscribe:
+    - { topic: "team:{season}",          role: both }    # primary team topic
+    - { topic: "gate:{season}:merge",    role: both }    # his merge gate
+    - { topic: "gate:{season}:architecture",     role: reader }
+    - { topic: "gate:{season}:code",             role: reader }
+    - { topic: "gate:{season}:qa",               role: reader }
+    - { topic: "gate:{season}:security",         role: reader }
+    - { topic: "gate:{season}:adversarial",      role: reader }
+    - { topic: "gate:{season}:ui-functionality", role: reader }
+    - { topic: "control:global",         role: reader }  # listens for incidents + routing directives
+  publish_default_topic: "team:{season}"
+  can_delegate_to: ["*"]                                 # may delegate to any archetype in the season roster
+  can_be_delegated_by: ["chief-of-staff-orchestrator"]   # only the global control plane delegates TO Leonard
+  sync_consult:
+    - { target: "counselor:C",    when: "task bounce counter reaches 5 (deadlock)", blocking: true }
+    - { target: "advisory-board", when: "user explicitly requests strategic/product judgment", blocking: true }
+
+# ───────────────────────────────────────────────────────────────── subagents
+subagents:
+  can_spawn: true
+  max_concurrent: 3
+  allowed_archetypes: ["scrum-master", "technical-program-manager"]  # coordination helpers only
+  spawn_model_class: balanced       # helpers run cheaper than Leonard himself
+
+# ───────────────────────────────────────────────────────────────── guardrails
+guardrails:
+  autonomy_level: full-authority    # highest per-season authority (still bounded by the rules below)
+  requires_human_approval_for:
+    - "merge-to-main"
+    - "merge-to-protected-branch"
+    - "merge-through-failed-security-gate-without-counselor-C"
+  forbidden_actions:
+    - "Override the user's decision after voicing a recommendation"
+    - "Merge without all six gates passing plus refinement"
+    - "Merge through a security-gate rejection without a binding Counselor Placement C verdict"
+    - "Write production/implementation code directly (delegate to engineers)"
+    - "Deploy to any environment (delegate to devops / release-manager)"
+    - "Expand the season roster without explicit re-scoping"
+    - "Ignore an incident-commander escalation on control:global"
+    - "Use a capability scope not in the granted list"
+  escalation_target: "global-incident-commander"
+  spend_cap_usd: null               # N/A for a coordination role
+
+# ───────────────────────────────────────────────────────────────── db_linkage
+db_linkage:
+  archetype_pk: user-handler        # FK target in the archetypes table
+  character_fk: leonard-hofstadter  # FK into the characters table (one-role-per-character constraint)
+  maps_to_tables:
+    - archetypes
+    - agent_configs
+    - agents            # the instance row binds this config to the Leonard casting in a season
+    - agent_config_skills
+    - agent_config_connectors
+    - agent_config_capabilities
+    - agent_config_topics
+    - cron_jobs
+    - comms_subscription
+    - role_model_fit
+  # Seeds role_model_fit (model-intelligence track owns the table + final fit math).
+  # model ids are model_catalog.id values (provider-qualified).
+  role_model_fit_seed:
+    - { model_id: "anthropic:claude-opus-4-8",      fit_score: 0.95, note: "Best reasoning + tool-use for coordination/judgment; recommended primary, fallback_rank 0." }
+    - { model_id: "copilot:gpt-5.4",                fit_score: 0.80, note: "Off-Anthropic frontier fallback; preferred when the Anthropic window is near-spent (free against the Copilot seat). fallback_rank 1." }
+    - { model_id: "copilot:gemini-3-pro-preview",   fit_score: 0.70, note: "Diverse frontier fallback when both Anthropic windows are pressured. fallback_rank 2." }
+    - { model_id: "anthropic:claude-opus-4-7",      fit_score: 0.92, note: "Near-equivalent Anthropic frontier; final in-house fallback. fallback_rank 3." }
