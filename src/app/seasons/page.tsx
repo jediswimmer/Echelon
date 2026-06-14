@@ -358,13 +358,23 @@ function NewSeasonModal({
       return;
     }
 
-    // A non-local source-control mode requires a repo identifier.
+    // Remote clone modes (github/azdo) require a repo identifier.
     const trimmedRepo = repoUrl.trim();
-    if (sourceMode !== 'local' && !trimmedRepo) {
+    const trimmedClonePath = localClonePath.trim();
+    if ((sourceMode === 'github' || sourceMode === 'azure-devops') && !trimmedRepo) {
       setError(
         sourceMode === 'github'
           ? 'Enter the GitHub repo (owner/repo or URL) to clone as the workspace, or switch to Local.'
           : 'Enter the Azure DevOps repo URL to clone as the workspace, or switch to Local.',
+      );
+      return;
+    }
+
+    // "Existing local clone" mode requires a folder path. Echelon validates the
+    // clone's git connection on spawn (and aborts with a clear error on failure).
+    if (sourceMode === 'local-clone' && !trimmedClonePath) {
+      setError(
+        'Choose the folder of a repo you have already cloned (Browse, or type its path), or switch to another source-control mode.',
       );
       return;
     }
@@ -394,10 +404,14 @@ function NewSeasonModal({
         rosterEntries: cleanRoster.length > 0
           ? cleanRoster.map(r => ({ ...r, capabilities: [] }))
           : undefined,
-        // Source control: only link when a non-local mode + repo is set.
-        sourceControl: sourceMode !== 'local'
-          ? { type: sourceMode, repoUrl: trimmedRepo }
-          : undefined,
+        // Source control: link a remote clone (github/azdo), adopt an existing
+        // local clone, or stay local-only (undefined).
+        sourceControl:
+          sourceMode === 'local-clone'
+            ? { type: 'local-clone', localPath: trimmedClonePath }
+            : sourceMode !== 'local'
+              ? { type: sourceMode, repoUrl: trimmedRepo }
+              : undefined,
         jiraProjectKey: jiraProjectKey.trim() || undefined,
         intake,
       });
@@ -575,7 +589,13 @@ function NewSeasonModal({
               Source control &amp; Jira
               {(sourceMode !== 'local' || jiraProjectKey.trim()) && (
                 <span className="text-[10px] text-primary/80">
-                  {sourceMode !== 'local' ? (sourceMode === 'github' ? 'GitHub' : 'Azure DevOps') : ''}
+                  {sourceMode !== 'local'
+                    ? sourceMode === 'github'
+                      ? 'GitHub'
+                      : sourceMode === 'azure-devops'
+                        ? 'Azure DevOps'
+                        : 'Local clone'
+                    : ''}
                   {sourceMode !== 'local' && jiraProjectKey.trim() ? ' · ' : ''}
                   {jiraProjectKey.trim() ? `JIRA ${jiraProjectKey.trim().toUpperCase()}` : ''}
                 </span>
@@ -613,7 +633,7 @@ function NewSeasonModal({
                     })}
                   </div>
 
-                  {sourceMode !== 'local' && (
+                  {(sourceMode === 'github' || sourceMode === 'azure-devops') && (
                     <div className="mt-2">
                       <input
                         value={repoUrl}
@@ -626,6 +646,33 @@ function NewSeasonModal({
                       <p className="text-[11px] text-muted-foreground/70 mt-1.5">
                         The repo is cloned as the season workspace on spawn; cast agents branch
                         their worktrees off it. If the clone fails, the spawn is aborted.
+                      </p>
+                    </div>
+                  )}
+
+                  {sourceMode === 'local-clone' && (
+                    <div className="mt-2">
+                      <div className="flex items-stretch gap-2">
+                        <input
+                          value={localClonePath}
+                          onChange={e => setLocalClonePath(e.target.value)}
+                          placeholder="/path/to/your/cloned/repo"
+                          className="flex-1 min-w-0 px-3 py-2 text-sm font-mono bg-background border border-border rounded-lg text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-primary"
+                        />
+                        <button
+                          type="button"
+                          onClick={browseForLocalClone}
+                          className="shrink-0 inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium rounded-lg border border-border bg-background text-foreground hover:border-primary/40"
+                        >
+                          <FolderOpen className="w-3.5 h-3.5" />
+                          Browse
+                        </button>
+                      </div>
+                      <p className="text-[11px] text-muted-foreground/70 mt-1.5">
+                        Point at a repo you’ve already cloned. Echelon validates its git connection
+                        (it must be a git repo with a reachable remote) and works in isolated
+                        worktrees off it — your working copy is untouched. If validation fails, the
+                        spawn is aborted with the reason.
                       </p>
                     </div>
                   )}

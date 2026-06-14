@@ -2,13 +2,15 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { ArrowLeft, Users, Shield, Settings, Archive, RotateCcw, MessagesSquare, KanbanSquare, Github, GitBranch, FolderGit2, FileText, Loader2, Search, ScanSearch, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, Users, Shield, Settings, Archive, RotateCcw, MessagesSquare, KanbanSquare, Github, GitBranch, FolderGit2, FolderSearch, FileText, Loader2, Search, ScanSearch, CheckCircle2, AlertTriangle } from 'lucide-react';
 import ThemeBadge from '@/components/Echelon/ThemeBadge';
 import Link from 'next/link';
 
 interface SeasonSourceControl {
-  type: 'local' | 'github' | 'azure-devops';
+  type: 'local' | 'github' | 'azure-devops' | 'local-clone';
   repoUrl?: string;
+  /** Absolute path to the adopted existing clone (only for `local-clone`). */
+  localPath?: string;
 }
 
 type SeasonIntake = 'greenfield' | 'brownfield';
@@ -58,8 +60,17 @@ function sourceControlMeta(sc?: SeasonSourceControl): { label: string; Icon: typ
   switch (sc?.type) {
     case 'github': return { label: 'GitHub', Icon: Github };
     case 'azure-devops': return { label: 'Azure DevOps', Icon: GitBranch };
+    case 'local-clone': return { label: 'Local clone', Icon: FolderSearch };
     default: return { label: 'Local workspace', Icon: FolderGit2 };
   }
+}
+
+/**
+ * The displayable location for a source-control linkage: the repo URL for
+ * remote clones, or the adopted folder path for an existing local clone.
+ */
+function sourceControlLocation(sc?: SeasonSourceControl): string | undefined {
+  return sc?.type === 'local-clone' ? sc.localPath : sc?.repoUrl;
 }
 
 type Tab = 'cast' | 'conversation' | 'tickets' | 'gates' | 'settings';
@@ -207,15 +218,16 @@ export default function SeasonDetailPage() {
               })()}
               {season.sourceControl && (() => {
                 const meta = sourceControlMeta(season.sourceControl);
+                const location = sourceControlLocation(season.sourceControl);
                 return (
                   <span
                     className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-secondary border border-border text-muted-foreground max-w-full"
-                    title={season.sourceControl.repoUrl || meta.label}
+                    title={location || meta.label}
                   >
                     <meta.Icon className="w-3 h-3 shrink-0" />
                     <span className="font-medium text-foreground">{meta.label}</span>
-                    {season.sourceControl.repoUrl && (
-                      <span className="font-mono truncate max-w-[14rem]">{season.sourceControl.repoUrl}</span>
+                    {location && (
+                      <span className="font-mono truncate max-w-[14rem]">{location}</span>
                     )}
                   </span>
                 );
@@ -518,12 +530,13 @@ function CastTab({ season }: { season: Season }) {
         <div className="flex items-center flex-wrap gap-2 text-xs text-muted-foreground bg-card border border-border rounded-lg px-3 py-2">
           {season.sourceControl && (() => {
             const meta = sourceControlMeta(season.sourceControl);
+            const location = sourceControlLocation(season.sourceControl);
             return (
-              <span className="inline-flex items-center gap-1.5 min-w-0" title={season.sourceControl.repoUrl || meta.label}>
+              <span className="inline-flex items-center gap-1.5 min-w-0" title={location || meta.label}>
                 <meta.Icon className="w-3.5 h-3.5 shrink-0" />
                 <span className="font-medium text-foreground">{meta.label}</span>
-                {season.sourceControl.repoUrl && (
-                  <span className="font-mono truncate max-w-[18rem]">{season.sourceControl.repoUrl}</span>
+                {location && (
+                  <span className="font-mono truncate max-w-[18rem]">{location}</span>
                 )}
               </span>
             );
@@ -672,12 +685,12 @@ function SettingsTab({ season }: { season: Season }) {
                 return <meta.Icon className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />;
               })()}
               <span>{sourceControlMeta(season.sourceControl).label}</span>
-              {season.sourceControl?.repoUrl && (
+              {sourceControlLocation(season.sourceControl) && (
                 <span
                   className="font-mono text-xs text-muted-foreground truncate max-w-[14rem]"
-                  title={season.sourceControl.repoUrl}
+                  title={sourceControlLocation(season.sourceControl)}
                 >
-                  {season.sourceControl.repoUrl}
+                  {sourceControlLocation(season.sourceControl)}
                 </span>
               )}
             </span>
