@@ -1,6 +1,13 @@
 ---
 character_name: Larry Page
 archetype: advisory-board-sme
+theme: tbbt
+beat_interval: event-driven
+silent_fail_checks:
+  - current_search_architecture_context_available
+  - embedding_model_information_accessible
+  - prior_search_decisions_loaded
+  - mempalace_available
 ---
 
 # HEARTBEAT.md — Larry Page's Heartbeat Configuration

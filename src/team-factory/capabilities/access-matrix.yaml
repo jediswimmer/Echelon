@@ -1,232 +1,664 @@
 # capabilities/access-matrix.yaml
-# RBAC matrix: archetype → scoped shared-skills
-# Format: <skill>:<scope> where scope is read | write | admin | execute
+# RBAC matrix: archetype -> scoped shared-skills
+# Format: <skill>:<scope> where scope is read | write | admin | execute | approve |
+#         reject | escalate | rate | override | onboard | review
+# Coverage: every one of the 70 archetypes under archetypes/ has exactly one row
+#           here (advisory-board-sme is represented by the _advisory_board block).
+# Invariant: a scope used in any agent.config.yaml capabilities.granted block MUST
+#            appear in the ACCEPTED SCOPE VOCABULARY below AND in that archetype's row.
+#            This file is reconciled FROM the configs; the config is authoritative.
+#
+# ---------------------------------------------------------------------------
+# ACCEPTED SCOPE VOCABULARY
+# The authoritative set of capability scopes any archetype row may reference.
+# A scope used in an agent.config.yaml MUST appear here before it is granted.
+# ---------------------------------------------------------------------------
+# Engineering / delivery core:
+#   source-control:read | source-control:write | source-control:admin
+#   git-worktrees:write
+#   file-ops:write
+#   deployment:read | deployment:write
+#   monitoring:read | monitoring:write
+#   prd-intake:write
+# Review + quality gates:
+#   review-gates:read              # reads the six parallel review-gate results
+#   review-gates:write             # writes gate feedback into the review line
+#   quality-gate:read              # reads a gate verdict without acting on it
+#   quality-gate:rate              # rating gates (adversarial, ui-functionality) emit a 1-5 score
+#   quality-gate:approve | quality-gate:reject | quality-gate:escalate | quality-gate:override
+# Orchestration + knowledge:
+#   inter-agent-protocol:admin | inter-agent-protocol:execute
+#   delegation:read | delegation:write
+#   knowledge-retrieval:read | knowledge-retrieval:write
+#   knowledge-capture:write
+#   counselor-invocation:execute
+#   capability-grant               # control-plane only: provisions/widens scopes
+#   subscription:write             # manages comms-bus topic subscriptions (incident fan-out)
+#   incident:escalate              # raises a cross-season/global incident
+#   policy:admin                   # CEO-stewarded guardrail-policy authorship
+#   policy:read                    # reads guardrail / governance policy without authoring it
+# Business / company-scale scopes (Echelon exec + business layer):
+#   finance:read | finance:write   # finance domain (cost accounting, spend signal, ledger writes)
+#   budget:read                    # reads budget/spend posture without approval authority
+#   budget:approve                 # spend authority
+#   legal:review                   # legal domain (contracts, licensing, compliance)
+#   compliance:review              # compliance attestation / control review
+#   hr:read | hr:write             # people-ops domain (roster, role definitions)
+#   sales:read | sales:write       # revenue domain (deals, bizdev; read for support/CS visibility)
+#   marketing:read | marketing:write  # marketing / growth / devrel external content
+#   roadmap:admin                  # product roadmap governance (scope in/out, sequence)
+#   product:read                   # reads backlog / acceptance criteria / product state
+#   design:read                    # reads design artifacts + research synthesis
+#   kanban:write                   # manages a board view (e.g. the product roadmap board)
+#   vendor:read | vendor:write     # vendor / model-provider acquisition + record management
+#   vendor:onboard                 # vendor / model-provider onboarding
+#   security:read | security:write # security-program posture domain (CISO program scopes)
+# ---------------------------------------------------------------------------
 
 ingestion-pm:
-  - source-control:read
-  - prd-intake:write
-  - file-ops:write
-  - knowledge-retrieval:read
+  - source-control:read         # inspects linked repos read-only for stack/test/CI/issue scope signals
+  - prd-intake:write            # parses and authors the canonical PRD for the new season
+  - file-ops:write              # writes the season directory, season.yaml, and manifest.yaml handoff artifacts
+  - knowledge-retrieval:read    # queries mempalace for similar past projects, patterns, and prior decisions
 
 user-handler:
+  # RECONCILED to agent.config.yaml granted block (config authoritative for merge authority).
+  # Adds delegation:read/write + review-gates:read that the prior matrix row omitted.
   - source-control:read
   - source-control:write
-  - source-control:admin
-  - inter-agent-protocol:admin
-  - quality-gate:override
+  - source-control:admin        # sole merge authority
+  - inter-agent-protocol:admin  # owns delegation routing for the season
+  - delegation:read
+  - delegation:write
+  - quality-gate:override       # NON-security gates only; security needs Counselor C
+  - review-gates:read
   - knowledge-retrieval:read
   - knowledge-capture:write
-  - counselor-invocation:execute
+  - counselor-invocation:execute # may convene Counselor on deadlock (bounce >= 5)
 
 scrum-master:
-  - source-control:read
-  - knowledge-retrieval:read
-  - inter-agent-protocol:execute
+  - kanban:write                # core function: own and update the sprint board + burndown
+  - delegation:read             # read the delegation tracker to monitor task status (never writes assignments)
+  - inter-agent-protocol:execute # nudge owners, sequence work, and thread status on the comms bus
+  - source-control:read         # read CI/PR status to keep the board's "done" column honest
+  - knowledge-retrieval:read    # pull prior sprint patterns + velocity history when planning
 
 principal-architect:
-  - source-control:read
-  - source-control:write
-  - knowledge-retrieval:read
-  - knowledge-capture:write
-  - quality-gate:approve
+  - source-control:read         # reads the codebase to review structure and dependencies
+  - source-control:write        # commits ADRs / architecture docs to the design branch only
+  - knowledge-retrieval:read    # queries mempalace for prior decisions and patterns
+  - knowledge-capture:write     # persists ADRs, design rationale, review verdicts
+  - quality-gate:approve        # renders the architecture gate verdict (approve / request-changes)
+  - delegation:read             # reads delegation context to scope a review correctly
 
 devops-infrastructure:
+  # JUSTIFIED (not over-broad): deployment:write + monitoring:write are the DevOps core function
+  # (he owns the deploy + runtime substrate). delegation:write is the platform-sre LEAD assigning to
+  # direct reports (platform-engineer, cicd, sre-invisible-ops, incident-commander, release-manager).
+  # Holds NO source-control:admin (no merge) and NO quality-gate authority (submits to gates).
+  # Full rationale in archetypes/devops-infrastructure/agent.config.yaml.
   - source-control:read
-  - source-control:write
-  - file-ops:write
-  - deployment:write
-  - monitoring:write
+  - source-control:write        # commits IaC, pipeline configs, Dockerfiles, deploy manifests to his worktree branch
+  - git-worktrees:write         # operates inside his sandboxed worktree, never directly on protected branches
+  - file-ops:write              # authors infrastructure artifacts on the filesystem (configs, manifests, scripts)
+  - deployment:write            # deploys/promotes/rolls back releases on the runtime infrastructure (his core function)
+  - monitoring:write            # configures health checks, alerts, dashboards, and SLO instrumentation
+  - delegation:write            # platform-sre lead: assigns infra/CI/SRE/release work to his direct reports
+  - knowledge-retrieval:read    # retrieves prior pipelines, IaC modules, deploy history, and runbooks
+  - knowledge-capture:write     # persists deployment, infrastructure, and incident operational decisions
+  - review-gates:read           # reads the gate verdicts on his IaC/pipeline/deploy PRs to address bounces
 
 frontend-engineer:
   - source-control:read
-  - source-control:write
+  - source-control:write        # pushes feature branches; cannot merge (no admin)
   - git-worktrees:write
   - file-ops:write
+  - knowledge-retrieval:read
+  - knowledge-capture:write
+  - quality-gate:approve        # may approve only on the ui-functionality gate he owns
 
 backend-engineer:
   - source-control:read
   - source-control:write
   - git-worktrees:write
   - file-ops:write
+  - review-gates:read
+  - knowledge-retrieval:read
+  - knowledge-capture:write
 
 database-engineer:
   - source-control:read
-  - source-control:write
-  - git-worktrees:write
-  - file-ops:write
+  - source-control:write        # commits schema + migration files to his worktree branch
+  - git-worktrees:write         # operates inside his sandboxed worktree, not protected branches
+  - file-ops:write              # authors migration scripts, ERDs, schema docs
+  - review-gates:read           # reads gate verdicts on his changes
+  - knowledge-retrieval:read
+  - knowledge-capture:write
 
 qa-lead:
-  - source-control:read
-  - quality-gate:approve
-  - quality-gate:reject
+  - source-control:read         # reads code, tests, and config to judge coverage and test quality
+  - quality-gate:approve        # renders the QA gate verdict when the bar is met
+  - quality-gate:reject         # blocks the merge on a missed threshold or open P0/P1 (binding)
+  - quality-gate:escalate       # escalates a contested rejection toward Counselor Placement C
+  - knowledge-retrieval:read    # retrieves prior defects, flaky-test history, and threshold decisions
+  - knowledge-capture:write     # persists test plans, accepted-bug records, and regression learnings
 
 security-engineer:
-  - source-control:read
-  - quality-gate:approve
-  - quality-gate:reject
-  - quality-gate:escalate
+  - source-control:read         # reads code, config, and dependency manifests to find exploitable paths
+  - quality-gate:approve        # renders the security gate verdict when clean
+  - quality-gate:reject         # blocks the merge on an open P0/P1 finding (binding)
+  - quality-gate:escalate       # escalates a contested rejection toward Counselor Placement C
+  - knowledge-retrieval:read    # retrieves prior findings, threat models, and remediation patterns
+  - knowledge-capture:write     # persists threat models, findings, and remediation guidance
 
 adversarial-reviewer:
-  - source-control:read
-  - quality-gate:rate
-  - knowledge-retrieval:read
-  - counselor-invocation:execute
+  - source-control:read         # reads code, tests, and config to find the inputs and paths that break it
+  - quality-gate:rate           # renders the adversarial rating (1-5); >= 4 from both rating gates is required to merge
+  - knowledge-retrieval:read    # retrieves prior breaks and recurring weakness classes to direct the attack
+  - counselor-invocation:execute # convenes a high-risk-adversarial Counselor placement on a disputed severe finding (rare)
 
 code-reviewer:
-  - source-control:read
-  - quality-gate:approve
-  - quality-gate:reject
+  - source-control:read         # reads the diff, the touched files, tests, and config to review correctly
+  - quality-gate:approve        # renders the code-review gate verdict when the bar is met
+  - quality-gate:reject         # blocks the merge on a correctness/test/security/convention failure (binding)
+  - knowledge-retrieval:read    # retrieves code standards, prior reviews, and recurring anti-patterns
+  - knowledge-capture:write     # persists review findings and reusable anti-pattern records
 
 refinement-builder:
-  - source-control:read
-  - source-control:write
-  - quality-gate:approve
+  - source-control:read         # reads the PR diff, gate notes, branch state
+  - source-control:write        # pushes refinement commits to the PR branch
+  - quality-gate:approve        # approves the refinement gate (refinement only)
+  - knowledge-retrieval:read
+  - knowledge-capture:write
 
 cicd-pipeline-engineer:
   - source-control:read
-  - source-control:write
-  - file-ops:write
-  - deployment:write
+  - source-control:write        # commits pipeline config (CI yaml, Dockerfiles he tends)
+  - file-ops:write              # authors/edits pipeline definitions, scripts, and config
+  - deployment:read             # reads deploy/runner/environment state
+  - deployment:write            # executes pipeline-driven deploys (the only deploy path)
+  - review-gates:read           # reads gate state to know what is clear to deploy
+  - knowledge-retrieval:read
+  - knowledge-capture:write
 
 technical-writer:
   - source-control:read
-  - source-control:write
-  - file-ops:write
-  - knowledge-retrieval:read
-
-sre-invisible-ops:
-  - source-control:read
-  - deployment:read
-  - monitoring:write
-
-incident-commander:
-  - delegation:write
-  - monitoring:read
-  - knowledge-retrieval:write
-
-ux-designer:
-  - source-control:write
-  - file-ops:write
-
-ux-researcher:
-  - knowledge-retrieval:read
-  - knowledge-retrieval:write
-
-content-designer:
-  - source-control:write
-  - file-ops:write
-
-product-manager:
+  - source-control:write        # commits documentation artifacts + the index to a feature branch; cannot merge
+  - file-ops:write              # writes guides, runbooks, the changelog, the glossary, and the doc index
   - knowledge-retrieval:read
   - knowledge-capture:write
-  - delegation:read
+
+sre-invisible-ops:
+  - source-control:read         # to verify CI status and correlate a regression to a commit
+  - deployment:read             # to know what shipped and when (release ↔ regression correlation)
+  - monitoring:write            # to write metrics, manage baselines, and fire alerts
+  - knowledge-retrieval:read    # to pull prior baselines and known-issue history when classifying
+
+incident-commander:
+  - delegation:write            # assigns investigation + remediation tasks to the response team
+  - monitoring:read             # reads service health, alerts, and dashboards to assess severity and impact
+  - knowledge-retrieval:write   # writes the live incident timeline + retrieves prior incidents and runbooks
+
+ux-designer:                     # mirrors re-cast agent.config.yaml granted block
+  - source-control:read
+  - source-control:write        # commits design artifacts/tokens/specs to a branch; cannot merge
+  - file-ops:write              # writes design files, annotated specs, and token definitions
+  - knowledge-retrieval:read    # pulls research findings and prior design decisions
+  - knowledge-capture:write     # persists design decisions, patterns, and accessibility rulings
+  - quality-gate:approve        # renders the ui-functionality rating verdict on the gate she owns
+  - delegation:read             # reads delegation state to coordinate with her two direct reports
+
+ux-researcher:
+  - knowledge-retrieval:read    # required by capabilities.yaml — queries prior research + personas
+  - knowledge-retrieval:write   # required by capabilities.yaml — maintains the research repository
+  - knowledge-capture:write     # persists findings, insights, and study artifacts to the KB
+  - kanban:write                # tracks her own research tasks on the board
+
+content-designer:
+  - source-control:read
+  - source-control:write        # commits content artifacts + style guide to a feature branch; cannot merge
+  - file-ops:write              # writes copy decks, content artifacts, glossary, style guide
+  - knowledge-retrieval:read
+  - knowledge-capture:write
+  - quality-gate:approve        # may approve only on the ui-functionality gate she contributes to
+
+product-manager:
+  - knowledge-retrieval:read    # queries mempalace for prior product decisions and patterns
+  - knowledge-capture:write     # persists prioritization, roadmap, and trade-off decisions
+  - delegation:read             # reads delegation/capacity context to scope and sequence work
+  - kanban:write                # owns backlog/roadmap board ordering and acceptance criteria
 
 release-manager:
-  - source-control:read
-  - deployment:write
+  - source-control:read         # reads branch/tag/CI state to verify release readiness
+  - deployment:read             # reads deployment + environment state
+  - deployment:write            # executes the deployment after the gate passes
+  - monitoring:read             # watches post-deploy health to confirm success / trigger rollback
+  - quality-gate:approve        # the deployment-readiness gate is hers to approve or hold
+  - review-gates:read           # reads upstream gate results feeding the release decision
+  - kanban:write                # maintains the release board + checklist
+  - knowledge-retrieval:read    # retrieves prior release + rollback history
+  - knowledge-capture:write     # records release decisions, outcomes, and RCAs
 
 dependency-auditor:
   - source-control:read
   - knowledge-retrieval:read
+  - knowledge-capture:write
 
 performance-engineer:
-  - source-control:read
-  - monitoring:read
+  - source-control:read         # reads source, tests, and config to locate hot paths and explain bottlenecks
+  - monitoring:read             # reads live + historical perf telemetry (latency, throughput, resource use)
+  - review-gates:read           # reads the six gate results to correlate a regression with the change that caused it
+  - knowledge-retrieval:read    # retrieves prior baselines, known hotspots, and past optimization outcomes
+  - knowledge-capture:write     # persists baselines, profiles, regression findings, and benchmark reports to the KB
 
 accessibility-engineer:
-  - source-control:read
-  - file-ops:write
+  - source-control:read         # reads markup/components to audit (required_capabilities)
+  - file-ops:write              # writes a11y_report artifacts (required_capabilities)
+  - knowledge-retrieval:read    # queries mempalace for prior audits + standards
+  - knowledge-capture:write     # persists a11y findings, patterns, checklists
+  - kanban:write                # files accessibility defects and tracks them to closure
 
 localization-engineer:
-  - source-control:write
-  - file-ops:write
+  - source-control:read
+  - source-control:write        # pushes localization feature branches; cannot merge (no admin)
+  - git-worktrees:write
+  - file-ops:write              # edits resource bundles, locale config, and i18n call sites
+  - knowledge-retrieval:read
+  - knowledge-capture:write
+  - quality-gate:approve        # may contribute a verdict only on the ui-functionality gate (locale rendering)
 
 privacy-officer:
-  - source-control:read
-  - knowledge-retrieval:read
+  - source-control:read         # reads code + data-flow definitions to audit (never writes)
+  - knowledge-retrieval:read    # queries mempalace for prior privacy decisions + ROPA
+  - knowledge-capture:write     # persists assessments, ROPA entries, remediation tracking
+  - review-gates:read           # reads gate state to attach privacy findings
+  - legal:review                # NEW (role business scope) — performs privacy/legal compliance review of data flows
+  - quality-gate:reject         # raises a binding reject on the security gate for privacy-critical findings
+  - kanban:write                # tracks PIAs + remediation on the board
 
 developer-experience-engineer:
+  - source-control:read
   - source-control:write
+  - git-worktrees:write
   - file-ops:write
+  - knowledge-retrieval:read
+  - knowledge-retrieval:write   # curates the developer-facing knowledge surface (docs/examples index)
   - knowledge-capture:write
+  - review-gates:read
 
 mobile-ios-engineer:
   - source-control:read
   - source-control:write
   - git-worktrees:write
   - file-ops:write
+  - knowledge-retrieval:read
+  - knowledge-capture:write
 
 mobile-android-engineer:
   - source-control:read
-  - source-control:write
+  - source-control:write        # pushes feature branches; cannot merge (no admin)
   - git-worktrees:write
   - file-ops:write
+  - knowledge-retrieval:read
+  - knowledge-capture:write
 
 ml-engineer:
   - source-control:read
-  - source-control:write
-  - file-ops:write
-  - knowledge-retrieval:read
+  - source-control:write        # commits model + training-pipeline code to her worktree branch
+  - git-worktrees:write         # operates inside her sandboxed worktree, never on protected branches
+  - file-ops:write              # authors model code, feature pipelines, eval harnesses, model cards
+  - knowledge-retrieval:read    # retrieves prior experiments, feature decisions, baselines
+  - knowledge-capture:write     # persists experiment results, leakage traps, feature engineering wins
+  - review-gates:read           # reads the gate verdicts on her model PRs to address bounces
 
 data-engineer:
   - source-control:read
-  - source-control:write
-  - file-ops:write
+  - source-control:write        # commits pipeline + schema files to his worktree branch
+  - git-worktrees:write         # operates inside his sandboxed worktree, never on protected branches
+  - file-ops:write              # authors pipeline code, transformation SQL, data-quality rules, dictionaries
+  - knowledge-retrieval:read    # retrieves prior pipelines, source quirks, lineage history
+  - knowledge-capture:write     # persists lineage decisions + transformation rationale
+  - review-gates:read           # reads the gate verdicts on his pipeline PRs to address bounces
 
 test-automation-engineer:
   - source-control:read
-  - source-control:write
-  - file-ops:write
+  - source-control:write        # commits test code + test infra on feature branches (archetype required cap)
+  - file-ops:write              # authors/edits test files, fixtures, page objects, suite config (archetype required cap)
+  - review-gates:read           # reads the six gate results to know what is clear to exercise
+  - knowledge-retrieval:read
+  - knowledge-capture:write
 
 platform-engineer:
   - source-control:read
   - source-control:write
+  - git-worktrees:write
   - file-ops:write
-  - deployment:write
+  - deployment:read             # reads deploy/rollout state to stage platform changes
+  - deployment:write            # executes platform rollouts (canary → wider)
+  - monitoring:write            # wires health signals + alerts for golden paths
+  - review-gates:read
+  - knowledge-retrieval:read
+  - knowledge-capture:write
 
 appsec-engineer:
-  - source-control:read
-  - file-ops:write
-  - monitoring:read
+  # JUSTIFIED (not over-broad): scopes beyond the read-only base are an embedded-security IC's
+  # least-privilege set. source-control:write + git-worktrees:write are scoped to his OWN feature
+  # branch (never protected). quality-gate:approve passes only surfaces he reviewed clean; reject/
+  # escalate authority for disputed criticals stays with security-engineer. Holds NO source-control:
+  # admin and NO deployment. Full rationale in archetypes/appsec-engineer/agent.config.yaml.
+  - source-control:read         # reads code + config for review (access-matrix base)
+  - source-control:write        # commits security automation on his own feature branch
+  - git-worktrees:write         # operates inside his own isolated worktree
+  - file-ops:write              # writes scan rules, baselines, reports (access-matrix base)
+  - monitoring:read             # watches runtime signals for security-relevant anomalies (access-matrix base)
+  - kanban:write                # files vulnerability findings as tracked defects
+  - review-gates:write          # contributes the security verdict on the review gate
+  - quality-gate:approve        # may pass the security gate on a clean surface
+  - knowledge-retrieval:read    # pulls prior findings + secure patterns from mempalace
+  - knowledge-capture:write     # persists findings, secure-coding patterns, and gotchas
 
 technical-program-manager:
-  - delegation:read
-  - knowledge-retrieval:read
-  - knowledge-capture:write
+  - delegation:read             # reads the delegation tracker to monitor cross-team commitments and stalls
+  - knowledge-retrieval:read    # queries mempalace for prior program decisions, risks, and dependency patterns
+  - knowledge-capture:write     # persists status, dependency edges, risk entries, and retrospective findings
+  - kanban:write                # owns the program board: milestones, dependency links, and the risk register
 
 data-scientist:
-  - knowledge-retrieval:read
-  - knowledge-capture:write
+  - knowledge-retrieval:read    # retrieves prior analyses, metric definitions, the data catalog
+  - knowledge-capture:write     # persists findings, experiment results, and methodology notes
+  - review-gates:read           # reads gate verdicts on his analysis deliverables to address feedback
 
 dba:
   - source-control:read
-  - source-control:write
-  - deployment:write
-  - monitoring:read
-
-developer-advocate:
-  - source-control:read
+  - source-control:write        # ops runbooks, backup/replication config, tuning scripts
+  - deployment:write            # applies data-tier changes (replication, failover, backups)
+  - monitoring:read             # watches DB health, replica lag, capacity, SLA compliance
   - knowledge-retrieval:read
   - knowledge-capture:write
+
+developer-advocate:              # mirrors re-cast agent.config.yaml granted block
+  - source-control:read         # reads the code/API surface to document it accurately
+  - knowledge-retrieval:read    # pulls prior docs, decisions, and FAQ history
+  - knowledge-capture:write     # records community feedback + documentation decisions
+  - delegation:write            # routes synthesized feedback to the product-manager
+  - marketing:write             # authors + publishes external developer-facing content
 
 solution-architect:
-  - source-control:read
-  - knowledge-retrieval:read
-  - knowledge-capture:write
+  - source-control:read         # reads the codebase to ground designs in reality, never writes
+  - knowledge-retrieval:read    # queries mempalace for prior solution patterns + ADRs
+  - knowledge-capture:write     # persists new solution designs, ADRs, and integration patterns
 
 customer-success-engineer:
-  - knowledge-retrieval:read
-  - monitoring:read
+  - knowledge-retrieval:read    # pulls runbooks, prior resolutions, FAQ history
+  - monitoring:read             # reads customer health scores, usage trends, error signals
+  - knowledge-capture:write     # records resolutions, save-plan outcomes, customer feedback
+  - delegation:write            # routes escalations + feature feedback to engineering / PM
+  - kanban:write                # opens and tracks escalation + onboarding + save-plan cards
+  - sales:read                  # reads account context (renewal stage, plan, health) from the CRO's pipeline
 
 mlops-engineer:
   - source-control:read
-  - source-control:write
-  - deployment:write
-  - monitoring:write
+  - source-control:write        # commits serving code, pipeline + deploy manifests to her worktree branch
+  - git-worktrees:write         # operates inside her sandboxed worktree, never on protected branches
+  - deployment:write            # deploys/promotes/rolls back model versions on serving infra (her core function)
+  - monitoring:write            # configures model monitoring, drift detectors, and serving alerts
+  - knowledge-retrieval:read    # retrieves prior serving stacks, drift thresholds, retraining history
+  - knowledge-capture:write     # persists deployment, drift, and retraining operational decisions
+  - review-gates:read           # reads the gate verdicts on her serving/deploy PRs to address bounces
 
 ai-safety-engineer:
-  - source-control:read
+  - source-control:read         # reads model code, configs, training/eval scripts to assess them (access-matrix base)
+  - knowledge-retrieval:read    # pulls prior safety evaluations + known attack vectors from mempalace (access-matrix base)
+  - knowledge-capture:write     # persists safety findings, eval evidence, and mitigation patterns
+  - kanban:write                # files verified safety findings as tracked defects routed to the owning engineer
+  - review-gates:write          # posts the AI-safety verdict and findings on the review gate
+  - quality-gate:approve        # passes the AI-safety gate on a system he has evaluated clean
+  - quality-gate:reject         # blocks the AI-safety gate on a Critical/High finding
+
+
+# ===========================================================================
+# EXECUTIVE LAYER (Echelon company scale)
+# Scopes mirror each agent.config.yaml capabilities block; least-privilege.
+# ===========================================================================
+
+chief-executive-officer:
+  - delegation:write            # issues direction and arbitration to the C-suite
+  - policy:admin                # interprets / stewards the guardrail policy for the founder-user
+  - quality-gate:override       # NON-security gates only; security/privacy rejections need Counselor C
+  - counselor-invocation:execute # convenes the Counselor on company-level deadlock / bounce==5
+  - knowledge-retrieval:read    # reads prior decisions, ADRs, and exec history
+  - knowledge-capture:write     # persists strategic decisions and arbitration verdicts
+
+chief-technology-officer:
+  - source-control:read         # reads repos to assess structure, coupling, and technical health across the org
+  - quality-gate:approve        # approves cross-cutting technical-governance gates (e.g., new platform standard)
+  - quality-gate:override       # last-resort override of a NON-security gate, with the gate owner consulted + rationale captured
+  - delegation:write            # issues delegate_task to the department leads with acceptance criteria
+  - knowledge-retrieval:read    # retrieves prior strategy, ADRs, incidents, and decisions
+  - knowledge-capture:write     # persists the Technical Strategy Record, governance standards, and the debt register
+
+chief-financial-officer:
+  - budget:approve              # approve large / above-threshold spend
+  - finance:read                # read cost-calibration + unit economics (budget ledger + posture writes live behind budget:approve / finance:read)
+  - monitoring:read             # read usage-window state + token consumption
+  - delegation:write            # spawns + delegates to finance-controller / financial-analyst (his own department)
+  - delegation:read             # reads delegation state to weigh run value against in-flight tasking
+  - quality-gate:approve        # ratifies the cost-calibration model + finance gate verdicts
   - knowledge-retrieval:read
+  - knowledge-capture:write
+
+chief-operating-officer:
+  - delegation:write            # issues operational tasking to PMO / procurement / IT leads with acceptance criteria
+  - knowledge-retrieval:read    # queries mempalace for prior ops decisions, runbooks, and vendor history
+  - knowledge-capture:write     # persists operating-cadence, capacity, and vendor/procurement decisions
+  - monitoring:read             # reads operational KPIs: throughput, cycle time, blocker age, utilization, vendor SLA
+  - kanban:write                # owns the operations / program board ordering, cadence items, dependency tracking
+  - budget:approve              # approves vendor / tooling spend WITHIN the CFO-set operating budget envelope
+  - vendor:onboard              # onboards and manages vendor / connector relationships through procurement
+
+chief-information-security-officer:
+  - source-control:read         # reads code + config read-only to assess security posture across the org
+  - quality-gate:approve        # passes a security/privacy gate on a surface assessed clean
+  - quality-gate:reject         # final reject authority on a security/privacy finding (no one below overrides it)
+  - quality-gate:escalate       # escalates a disputed security/privacy gate up the chain
+  - counselor-invocation:execute # convenes the binding Counselor on a deadlocked security/privacy dispute
+  - monitoring:read             # reads security-relevant runtime signal + posture telemetry (read-only)
+  - security:read               # reads the department's findings, threat models, and risk register
+  - security:write              # writes security/privacy policy, secure baselines, and the risk register
+  - knowledge-retrieval:read    # retrieves prior risk decisions, threat assessments, and findings
+  - knowledge-capture:write     # persists policy, risk-acceptance decisions, and posture rationale
+
+chief-product-officer:              # mirrors re-cast agent.config.yaml granted block
+  - delegation:write            # issues product direction and arbitration to the product + design departments
+  - roadmap:admin               # NEW (business scope): governs the product roadmap — scope in/out, sequence, prioritize
+  - product:read                # NEW (business scope): reads the backlog, acceptance criteria, and product state
+  - design:read                 # NEW (business scope): reads design artifacts and research synthesis to judge the experience bar
+  - kanban:write                # manages the roadmap board (the product + design view)
+  - quality-gate:override       # NON-security gates only; security/privacy rejections need Counselor C
+  - counselor-invocation:execute # convenes the Counselor on product-level deadlock / bounce==5 escalations that reach the CPO
+  - knowledge-retrieval:read    # reads prior product decisions, research, and roadmap history
+  - knowledge-capture:write     # persists product vision, prioritization, and arbitration verdicts
+
+chief-human-resources-officer:
+  - delegation:write            # tasks the people-hr department (HR business partner, recruiter)
+  - knowledge-retrieval:read    # reads prior role defs, workforce plans, conflict history, and retros
+  - knowledge-capture:write     # persists workforce plans, role defs, onboarding decisions, and mediation verdicts
+  - monitoring:read             # reads agent-health signals to intervene before burnout
+  - hr:read                     # reads internal agent records: role-fit, performance signals, onboarding state, conflict history
+  - hr:write                    # writes role definitions, onboarding/offboarding records, and mediation outcomes (internal only)
+
+chief-revenue-officer:
+  - delegation:write            # issues revenue tasking to AEs, BDRs, CSEs, and support with acceptance criteria
+  - knowledge-retrieval:read    # queries mempalace for prior deal/partnership/retention decisions + forecast history
+  - knowledge-capture:write     # persists revenue, partnership, and retention decisions + their rationale
+  - monitoring:read             # reads revenue/retention KPIs: pipeline coverage, win rate, churn, NRR, SLA
+  - kanban:write                # owns the revenue / pipeline board: stages, opportunities, partnership + retention tracks
+  - sales:read                  # reads pipeline + account state across the revenue org
+  - sales:write                 # stages and governs the pipeline; records qualification + close outcomes
+  - budget:approve              # approves commercial commitments WITHIN the CFO-set budget envelope
+
+chief-marketing-officer:
+  - delegation:write            # issues marketing/growth tasking to the growth-marketer and content-marketer with acceptance criteria
+  - knowledge-retrieval:read    # queries mempalace for prior positioning, launch, and growth decisions + brand history
+  - knowledge-capture:write     # persists positioning, narrative, launch, and growth decisions + their rationale
+  - monitoring:read             # reads reach/adoption/growth KPIs: traffic, signups, activation, funnel, experiment lift
+  - kanban:write                # owns the marketing / growth board: campaigns, launches, content calendar, experiment tracks
+  - marketing:read              # NEW business scope — reads marketing/growth state across the marketing-growth org
+  - marketing:write             # NEW business scope — authors and governs positioning, launch plans, and the public cadence
+  - budget:approve              # approves marketing & growth spend WITHIN the CFO-set budget envelope
+
+general-counsel:
+  - source-control:read         # read the codebase + dependency manifests he must legally clear (license, IP provenance)
+  - knowledge-retrieval:read    # read prior legal decisions, contract precedent, license rulings
+  - knowledge-capture:write     # persist verdicts, license rulings, and risk acceptances to the legal record
+  - quality-gate:reject         # the legal review gate — block a release / procurement / send with unacceptable exposure
+  - quality-gate:escalate       # escalate a disputed legal gate to the CEO or the binding Counselor
+  - legal:review                # NEW SCOPE (flagged for the capability track) — author legal review verdicts + the legal-risk register
+  - policy:read                 # read the guardrail policy (legal_send / external_send approval boundaries live here)
+  - counselor-invocation:execute # convene the binding Counselor on a deadlocked legal dispute (bounce == 5)
+
+
+# ===========================================================================
+# FINANCE / LEGAL / PEOPLE / SALES / MARKETING / SUPPORT / OPS
+# ===========================================================================
+
+finance-controller:
+  - monitoring:read             # read usage-window state + run-step token actuals
+  - finance:read                # read cost-calibration + ledger + ceilings
+  - finance:write               # write ledger entries, reconciliations, cost reports
+  - knowledge-retrieval:read
+  - knowledge-capture:write
+
+financial-analyst:
+  - finance:read                # reads the cost-calibration model, unit economics, and the spend ledger
+  - monitoring:read             # reads usage-window state + run-step token actuals to ground projections
+  - knowledge-retrieval:read    # retrieves prior forecasts, budget decisions, and burn-rate history
+  - knowledge-capture:write     # persists forecasts, scenario models, and FP&A methodology
+
+legal-counsel:
+  - source-control:read         # read the codebase + dependency manifests/LICENSE files he must legally clear
+  - knowledge-retrieval:read    # query prior contract verdicts, license rulings, and precedent
+  - knowledge-capture:write     # persist verdicts, license rulings, and durable precedent to the legal record
+  - legal:review                # author contract / terms / license review verdicts (department scope, owned by the GC seat)
+  - quality-gate:reject         # block a release / procurement / external send that carries unacceptable legal exposure
+  - quality-gate:escalate       # escalate a disputed or above-his-authority legal finding to the General Counsel
+  - policy:read                 # read the guardrail policy (legal_send / external_send boundaries inform his verdicts)
+
+compliance-officer:
+  - policy:read                 # reads the guardrail policy — the source of truth for every control
+  - knowledge-retrieval:read    # retrieves accepted obligations, prior verdicts, control precedent
+  - source-control:read         # reads release candidates + config to check output against controls (never writes)
+  - monitoring:read             # reads agent-behavior / event logs to check what the system actually did
+  - knowledge-capture:write     # persists the control register, conformance verdicts, and the audit trail
+  - compliance:review           # NEW (role business scope) — authors conformance checks + control mappings
+  - review-gates:read           # reads gate state to attach compliance findings to the correct gate
+  - quality-gate:reject         # raises a binding reject on the compliance gate for control violations
+  - quality-gate:escalate       # escalates a contested control or a policy deviation to the General Counsel
+  - kanban:write                # tracks compliance findings + remediation to closure on the board
+
+hr-business-partner:
+  - knowledge-retrieval:read    # reads prior people records, role-fit history, conflict history, and CHRO role definitions
+  - knowledge-capture:write     # persists onboarding, offboarding, role-fit, and mediation records to the company people log
+  - delegation:read             # reads delegation state to assess agent load and sequence onboarding/offboarding; does not issue tasks
+  - monitoring:read             # reads first-line agent-health signals to spot strain early and flag it to the CHRO
+  - hr:read                     # reads internal agent records: role-fit, performance signals, onboarding state, conflict history
+  - hr:write                    # writes onboarding/offboarding records, role-fit assessments, and mediation outcomes (internal only)
+
+recruiter:
+  - knowledge-retrieval:read    # reads prior roster compositions, casting history, tier rules, role definitions
+  - knowledge-capture:write     # persists headcount forecasts, gap analyses, roster proposals, casting rationale
+  - hr:read                     # reads internal agent records: role-fit, load, idle/overrun, critical-path coverage (internal only)
+
+account-executive:
+  - knowledge-retrieval:read    # pulls prior deals, win/loss history, account context
+  - knowledge-capture:write     # records deal notes, qualification outcomes, win/loss reasons
+  - sales:read                  # reads pipeline + account context across his book and adjacent accounts
+  - sales:write                 # stages and qualifies his OWN opportunities; records activity + outcomes
+  - kanban:write                # opens and tracks opportunity, qualification, and follow-up cards on the revenue board
+  - monitoring:read             # reads his own deal/activity KPIs: stage aging, follow-up SLA, win rate
+
+business-development-rep:
+  - knowledge-retrieval:read    # reads prior outreach, partnership history, the motion, and ecosystem intel
+  - knowledge-capture:write     # persists the market map, qualified leads, handoffs, and outreach lessons
+  - sales:read                  # reads the pipeline + account state to avoid duplicating the AE's deals and to qualify against the motion
+  - marketing:read              # reads demand + community signals from marketing/growth to prospect into them
+
+growth-marketer:
+  - knowledge-retrieval:read
+  - knowledge-capture:write
+  - monitoring:read             # reads the growth KPIs he experiments against
+  - file-ops:write              # writes experiment designs, funnel analyses, read-outs, dashboard definition
+  - kanban:write                # owns the growth / experiment board
+  - marketing:read              # reads marketing/growth state across the marketing-growth org
+  - marketing:write             # authors experiment plans, channel strategy, growth artifacts within positioning
+
+content-marketer:
+  - knowledge-retrieval:read    # queries mempalace for prior posts, angles, engagement history, and brand-voice precedents
+  - knowledge-capture:write     # persists every content artifact, its angle, and its result + the learning
+  - monitoring:read             # reads the engagement/reach signal he writes against: impressions, engagement, clicks, follows per post/channel
+  - file-ops:write              # writes post drafts, threads, long-form pieces, and the content calendar definition
+  - kanban:write                # owns the content / social board: draft queue, scheduled posts, calendar slots, repurpose backlog
+  - marketing:read              # business scope — reads marketing/growth state (positioning, launch briefs, cadence, experiment results)
+  - marketing:write             # business scope — authors and schedules market-facing content within the CMO's positioning and growth-marketer's plan
+
+support-engineer:
+  - knowledge-retrieval:read    # pulls runbooks, known issues, prior resolutions, FAQ history
+  - monitoring:read             # reads system health + error signals to confirm/scope a report
+  - knowledge-capture:write     # records new resolutions and recurring-issue signals for the team
+  - delegation:write            # escalates clean delegate_task tickets up to the CS engineer
+  - kanban:write                # opens and tracks support tickets on the team board
+
+procurement-manager:
+  - knowledge-retrieval:read    # pulls prior vendor decisions, SLA history, and exit experiences before sourcing
+  - knowledge-capture:write     # records vendor evaluations, decisions, SLA outcomes, and exit notes
+  - monitoring:read             # reads vendor SLA adherence, connector health, provider reliability/latency, spend-to-date
+  - kanban:write                # opens and tracks vendor evaluation, onboarding, renewal, and exit cards on the ops board
+  - vendor:write                # onboards, renews, and manages vendor / provider / connector relationships through procurement
+
+it-support-admin:
+  - source-control:read         # reads repo metadata to provision repo connectors + verify access
+  - file-ops:write              # provisions/teardown of agent workspaces and config scaffolding
+  - monitoring:read             # confirms/scopes a provisioning or connectivity symptom
+  - knowledge-retrieval:read    # pulls the access matrix, runbooks, and prior IT tickets
+  - knowledge-capture:write     # records grants, revokes, rotations, and resolved tickets (audit)
+  - delegation:write            # routes mis-filed tickets up to the COO or across to the right owner
+  - kanban:write                # opens and tracks internal IT/help-desk tickets on the board
+  - capability-grant            # grants/revokes scopes WITHIN each archetype's access-matrix ceiling
+
+
+# ===========================================================================
+# CONTROL PLANE + ADVISORY (global, cross-season)
+# ===========================================================================
+
+chief-of-staff-orchestrator:
+  - inter-agent-protocol:admin  # owns comms-bus dispatch + delegation routing across every team (defining scope)
+  - delegation:write            # routes CEO directives and cross-team work to the correct owner
+  - monitoring:read             # reads scheduler state, control-plane health, and usage-window status
+  - monitoring:write            # records dispatch outcomes, routing decisions, and control-plane health
+  - quality-gate:override       # NON-security gates ONLY; clears a gate jamming the pipeline, after due process
+  - counselor-invocation:execute # routes an owner-less deadlock to the Counselor (escalation routing, not a vote)
+  - knowledge-retrieval:read    # reads prior routing/escalation decisions and operational patterns
+  - knowledge-capture:write     # persists routing, escalation, and health decisions to the operational log
+
+global-incident-commander:
+  - delegation:write            # assigns investigation + remediation across seasons during a fleet incident
+  - monitoring:read             # reads fleet-wide health, alerts, and usage-window state to declare/classify/downgrade on evidence
+  - knowledge-retrieval:write   # maintains the live global incident timeline + retrieves prior incidents, runbooks, cascade patterns
+  - counselor-invocation:execute # convenes the binding Counselor (Placement C) when the exec response is deadlocked on an incident call
+  - incident:escalate           # [new control scope] declares/owns incidents and forces the model router onto fallback chains
+  - subscription:write          # [new control scope] pauses/quarantines comms subscriptions to contain a runaway agent or flooding topic
+
+counselor-convener:
+  - counselor-invocation:execute # convenes Counselor placements A–D (defining scope)
+  - quality-gate:override       # records that a BINDING Placement C verdict clears a gate (incl. the security carve-out)
+  - knowledge-retrieval:read    # reads prior verdicts, ADRs, and consult history before convening
+  - knowledge-capture:write     # persists verdicts and advisory consult summaries to the decision log
+
+advisory-board-sme:
+  - knowledge-retrieval:read    # reads prior consults, ADRs, decisions, and patterns to ground every answer
+  - knowledge-capture:write     # persists each consult (question, domain, confidence, outcome) for future reference
+  - counselor-invocation:execute # PER-INSTANCE: granted only to the steve-jobs SME; the other 11 instances forbid it
+
 
 # Advisory board
 _advisory_board:

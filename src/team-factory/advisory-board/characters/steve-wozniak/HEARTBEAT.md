@@ -1,6 +1,13 @@
 ---
 character_name: Steve Wozniak
 archetype: advisory-board-sme
+theme: tbbt
+beat_interval: event-driven
+silent_fail_checks:
+  - current_infrastructure_context_available
+  - application_resource_profile_documented
+  - prior_infrastructure_decisions_loaded
+  - mempalace_available
 ---
 
 # HEARTBEAT.md — Steve Wozniak's Heartbeat Configuration

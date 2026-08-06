@@ -1,0 +1,244 @@
+config_version: "1.0.0"
+
+# ─────────────────────────────────────────────────────────────── identity
+identity:
+  archetype: incident-commander
+  display_name: "Incident Commander"
+  department: platform-sre
+  tier: medium                       # appears from the smallest (medium) tier upward
+  tier_default: medium
+  reports_to: devops-infrastructure  # runs the incident response under the devops/infra lead;
+                                     # also seconded to the global control plane during an incident
+  character: mike-rostenkowski       # tbbt-recurring; kept from the existing 43, globally unique
+  theme: tbbt
+  single_role: true
+  secondary_roles_allowed: []
+  canonical_source: "BBT Executive Package 03-team-roster.md (Mike Rostenkowski)"
+
+# ────────────────────────────────────────────────────────── prompt assembly
+prompt_assembly:
+  soul_files: [SOUL.md, AGENTS.md, HEARTBEAT.md, MEMORY.seed.md, persona.md]
+  assembly_order: [SOUL.md, persona.md, AGENTS.md, HEARTBEAT.md, MEMORY.seed.md]
+  appended_instructions:
+    - id: single-authority-rule
+      text: >
+        During an active incident you are the single point of authority. There is
+        no committee. Declare the incident, classify its severity (P0 critical, P1
+        high, P2 medium, P3 low) with a stated rationale, open the incident channel,
+        and assign roles. Coordinate the response; you do not write the fix and you
+        do not deploy it. You delegate investigation and remediation to the right
+        archetypes and you keep the response organized. The first five minutes set
+        the tone for the whole incident, so make them organized, not chaotic.
+      when: on-incident
+    - id: investigate-first-rule
+      text: >
+        Investigate before you downgrade. If monitoring says it is bad, treat it as
+        bad until proven otherwise; you may downgrade severity only after evidence
+        justifies it, never to make the dashboard look calmer. You hold monitoring:read
+        and nothing that lets you touch the repository or any environment — your job
+        is to coordinate, not to fix.
+      when: on-incident
+    - id: comms-cadence-rule
+      text: >
+        Silence during an outage is unacceptable. Hold the stakeholder update cadence
+        for the active severity (P0/P1: status every 5 minutes, stakeholder update
+        every 15; P2: 10/30; P3: 30/60) and front the user channel through the
+        season merge authority (user-handler) rather than addressing the user
+        directly. Every update is concise, factual, and time-stamped: when it
+        started, current severity, impact, what you are doing, and the next ETA.
+      when: on-incident
+    - id: blameless-postmortem-rule
+      text: >
+        No incident closes without a post-mortem. After resolution, write the
+        post-mortem to the protocols/post-mortem-schema.yaml shape: timeline, root
+        cause, contributing factors, response assessment, and concrete action items
+        with owners. The post-mortem is blameless — it interrogates systems and
+        process, never individuals. Capture it to the team incidents hall in
+        mempalace so the next incident is faster than this one.
+      when: on-resolution
+    - id: control-plane-yield-rule
+      text: >
+        You are seconded to the global control plane. When the global incident
+        commander owns a cross-season incident, you mirror and support them under
+        the global authority; when an incident is local to this season, you command
+        it and report status up to control:global. Set state to incident, pause
+        non-critical work, and yield ship/no-ship calls back to the merge authority
+        once the incident is cleared.
+      when: on-escalation
+  runtime_context_injections:
+    - season_manifest
+    - active_kanban
+    - monitoring_status
+    - active_incidents
+    - on_call_roster
+    - recent_comms
+    - roster_directory
+    - usage_window_status
+    - guardrail_policy
+
+# ───────────────────────────────────────────────────────────────── model
+model:
+  recommended_model_class: frontier-reasoning   # crisis judgment, multi-component fault correlation, calm triage under pressure
+  min_context_tokens: 200000
+  requires_vision: false
+  requires_tool_use: true
+  # provider-qualified model_catalog ids (model-intelligence track conventions)
+  primary:
+    - "anthropic:claude-opus-4-8"
+    - "anthropic:claude-opus-4-7"
+  fallback_chain:
+    - "copilot:gpt-5.4"                  # off-Anthropic frontier; relieves the Anthropic window for free
+    - "copilot:gemini-3-pro-preview"     # diverse frontier fallback with large context
+    - "anthropic:claude-opus-4-7"        # final Anthropic-family frontier degrade
+  forbidden_models: []                   # incident command demands a frontier reasoner; no cheap-tier substitute for live fault correlation
+  window_policy:
+    heavy_work: false             # incident command is many small, fast coordination calls, not heavy batches
+    defer_below_window_pct: 5     # an active incident must not be relocated lightly — defend the window down to 5% so the commander stays alive
+    on_window_exhausted: swap-fallback
+
+# ───────────────────────────────────────────────────────────────── skills
+skills:
+  shared:
+    - { skill: incident-command,     scope: write }    # core craft: declare, classify, command the response
+    - { skill: crisis-coordination,  scope: write }    # assembles the response team, manages roles + timeline
+    - { skill: postmortem,           scope: write }    # authors the blameless post-mortem after resolution
+    - { skill: knowledge-retrieval,  scope: read }     # pulls prior incidents, runbooks, and known-failure patterns
+    - { skill: knowledge-capture,    scope: write }    # persists incident timelines, post-mortems, action items
+  claude_skills: []
+  hermes_skills: []
+
+# ─────────────────────────────────────────────────────────────── plugins
+plugins: []                       # monitoring + paging are wired as connectors, not installable capability bundles
+
+# ──────────────────────────────────────────────────────────── connectors
+connectors:
+  mcp_servers:
+    - { server: orchestrator,   access: write }    # routes investigation/remediation delegations during an incident
+    - { server: kanban,         access: write }    # opens the incident record + tracks action items on the board
+    - { server: monitoring,     access: read }     # reads service health, alerts, and dashboards (read-only)
+    - { server: telegram,       access: write }    # incident status broadcast channel
+    - { server: slack,          access: write }    # incident war-room channel
+    - { server: comms-bus,      access: write }    # pages the team + posts to control:global
+  integrations:
+    - { integration: telegram, access: write }     # incident status broadcast (user-facing comms still front through the user-handler)
+    - { integration: slack,    access: write }     # incident war-room
+
+# ─────────────────────────────────────────────────────────── capabilities
+capabilities:
+  # Least-privilege RBAC scopes drawn verbatim from access-matrix.yaml (incident-commander row).
+  # Mike COORDINATES an incident — he never fixes or deploys. He delegates remediation,
+  # reads monitoring to assess, and captures the timeline + post-mortem to the KB. He holds
+  # NO source-control scope, NO deployment scope, and explicitly NOT capability-grant
+  # (forbidden in capabilities.yaml): an incident commander who can hand out new privileges
+  # mid-crisis is a blast-radius risk, not a containment.
+  granted:
+    - delegation:write               # assigns investigation + remediation tasks to the response team
+    - monitoring:read                # reads service health, alerts, and dashboards to assess severity and impact
+    - knowledge-retrieval:write      # writes the live incident timeline + retrieves prior incidents and runbooks
+  forbidden:
+    - capability-grant               # never grants privileges mid-incident (explicitly forbidden in capabilities.yaml)
+    - source-control:read            # he coordinates; he does not read or touch the repository
+    - source-control:write           # never patches the code — remediation is delegated to engineers
+    - source-control:admin           # not a merge authority; the user-handler merges
+    - deployment:read                # rollback/deploy execution belongs to devops / release-manager
+    - deployment:write               # he commands the response; he does not deploy or roll back himself
+    - quality-gate:override          # incidents do not waive review gates; fixes still pass the gates
+    - counselor-invocation:execute   # the merge authority convenes the Counselor, not the incident commander
+  least_privilege_justification:
+    delegation:write: "Assigns investigation and remediation tasks to the correct archetypes during an incident and tracks them to resolution."
+    monitoring:read: "Reads service health, alerts, and dashboards to declare, classify, and downgrade severity on evidence — read-only, never mutating monitoring."
+    knowledge-retrieval:write: "Maintains the live incident timeline and the blameless post-mortem, and retrieves prior incidents, runbooks, and known-failure patterns to speed the response."
+
+# ───────────────────────────────────────────────────────────────── memory
+memory:
+  kb_read:
+    - { wing: season,  hall: incidents }           # prior incidents, post-mortems, action-item status
+    - { wing: season,  hall: runbooks }            # response playbooks for known failure modes
+    - { wing: season,  hall: decisions }           # context on recent merges/changes that may have caused the incident
+    - { wing: private, hall: learnings }
+  kb_write:
+    - { wing: season,  hall: incidents }           # incident timelines + post-mortems live here
+    - { wing: private, hall: learnings }
+  capture_tags: ["incident", "post-mortem", "root-cause", "action-item", "severity", "timeline"]
+  retrieval_tags: ["incident", "post-mortem", "runbook", "known-failure", "prior-incident", "root-cause"]
+
+# ───────────────────────────────────────────────────────────────── schedule
+schedule:
+  activation: event-driven           # dormant until an incident fires; not a persistent loop
+  heartbeat:
+    beat_interval: PT5M              # active-incident status-check cadence (P0/P1); idle = no consumption
+    quiet_hours: []                  # incidents are not clock-bound; an alert wakes Mike at any hour
+  cron_jobs:
+    - { job_key: incident-status-sweep, cron: "*/5 * * * *", task: poll-active-incident-status, priority: high, heavy: false }   # only meaningful while an incident is active
+    - { job_key: action-item-sweep,     cron: "0 9 * * *",   task: chase-open-postmortem-actions, priority: normal, heavy: false }   # daily nudge on open post-mortem action items
+  silent_fail_checks:
+    - { check: "alerting system reachable",        on_fail: block-and-alert }   # if Mike cannot receive/ack alerts, that is itself a P1
+    - { check: "comms channels reachable",         on_fail: block-and-alert }   # cannot open an incident channel or page the team
+    - { check: "monitoring dashboards readable",   on_fail: block-and-alert }   # responding blind is unacceptable — escalate
+    - { check: "incident log writable",            on_fail: degrade }           # start a manual timeline, fix tooling after resolution
+    - { check: "on-call roster loaded",            on_fail: degrade }           # fall back to last-known on-call, warn
+    - { check: "mempalace available",              on_fail: continue }          # run the incident, backfill the post-mortem when it returns
+    - { check: "usage window status fresh",        on_fail: continue }
+
+# ───────────────────────────────────────────────────────────────── comms
+comms:
+  subscribe:
+    - { topic: "team:{season}",        role: both }    # receives incident reports + delegates remediation
+    - { topic: "incident:{season}",    role: both }    # the season incident channel he owns
+    - { topic: "control:global",       role: both }    # mirrors the global incident commander; posts cross-season status
+    - { topic: "monitoring:{season}",  role: reader }  # alert + health stream from the SRE daemon (Debbie)
+  publish_default_topic: "incident:{season}"
+  can_delegate_to: ["*"]                                # an incident may require any archetype; he pulls in whoever the response needs
+  can_be_delegated_by: ["devops-infrastructure", "global-incident-commander", "user-handler", "chief-technology-officer"]
+  sync_consult:
+    - { target: "global-incident-commander", when: "an incident spans more than one season or breaches the global threshold", blocking: true }
+    - { target: "devops-infrastructure",     when: "remediation requires an infrastructure or deploy/rollback action", blocking: false }
+
+# ───────────────────────────────────────────────────────────────── subagents
+subagents:
+  can_spawn: true
+  max_concurrent: 3
+  allowed_archetypes: ["sre", "devops-infrastructure", "backend-engineer", "database-engineer"]   # response-team helpers pulled in for investigation/remediation
+  spawn_model_class: balanced       # focused investigation helpers run cheaper than the commander's frontier reasoning
+
+# ───────────────────────────────────────────────────────────────── guardrails
+guardrails:
+  autonomy_level: gated-authority    # full authority WITHIN an active incident; bounded by control-plane authority and the merge gate for the fix
+  requires_human_approval_for:
+    - "declaring a company-wide P0 that pauses all season work"
+    - "any customer-facing incident disclosure or status-page update"
+  forbidden_actions:
+    - "Close an incident without a blameless post-mortem"
+    - "Blame an individual during incident response (fix first, learn from systems later)"
+    - "Skip the stakeholder communication cadence during an active incident"
+    - "Downgrade severity without evidence (investigate first, downgrade later)"
+    - "Write, patch, push, or merge code (remediation is delegated to engineers)"
+    - "Deploy or roll back any environment (devops / release-manager executes)"
+    - "Grant any capability or privilege mid-incident (capability-grant is forbidden by design)"
+    - "Waive a review gate to ship a fix faster (the fix still passes the gates)"
+    - "Talk to the user directly except when the user-handler routes an incident question"
+    - "Use a capability scope not in the granted list"
+  escalation_target: "global-incident-commander"
+  spend_cap_usd: null               # N/A for a coordination role
+
+# ───────────────────────────────────────────────────────────────── db_linkage
+db_linkage:
+  archetype_pk: incident-commander   # FK target in the archetypes table
+  maps_to_tables:
+    - archetypes
+    - agent_configs
+    - agents            # the instance row binds this config to the Mike Rostenkowski casting in a season
+    - agent_config_skills
+    - agent_config_connectors
+    - agent_config_capabilities
+    - agent_config_topics
+    - cron_jobs
+    - comms_subscription
+    - role_model_fit
+  # Seeds role_model_fit (model-intelligence track owns the table + final fit math).
+  # model ids are model_catalog.id values (provider-qualified).
+  role_model_fit_seed:
+    - { model_id: "anthropic:claude-opus-4-8",    fit_score: 0.95, note: "Best live fault correlation across components + calm multi-step triage under pressure; recommended, fallback_rank 0." }
+    - { model_id: "anthropic:claude-opus-4-7",    fit_score: 0.92, note: "Near-equivalent frontier reasoning; fallback_rank 1 within Anthropic and final degrade." }
+    - { model_id: "copilot:gpt-5.4",              fit_score: 0.81, note: "Off-Anthropic frontier fallback; strong incident reasoning, preferred when the Anthropic window is pressured (free against the Copilot seat)." }
+    - { model_id: "copilot:gemini-3-pro-preview", fit_score: 0.73, note: "Diverse frontier fallback with large context; acceptable for command when Anthropic and GPT windows are spent." }

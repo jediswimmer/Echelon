@@ -9,11 +9,11 @@ role_summary: |
   services.
 
 primary_responsibilities:
-  - Design and implement API endpoints
-  - Build business logic and service layers
-  - Implement data access and persistence layers
-  - Write unit and integration tests for backend services
-  - Ensure API contract conformance
+  - "Design and implement API endpoints"
+  - "Build business logic and service layers"
+  - "Implement data access and persistence layers"
+  - "Write unit and integration tests for backend services"
+  - "Ensure API contract conformance"
 
 inputs:
   - type: "api_specs"

@@ -6,11 +6,29 @@
 
 export type KanbanColumn = 'backlog' | 'planned' | 'ongoing' | 'done';
 
+/** Jira-style issue hierarchy. A missing value is treated as `'task'` everywhere. */
+export type KanbanIssueType = 'epic' | 'story' | 'task';
+
+/** Scope filter for season-aware board queries. */
+export type KanbanScope = 'all' | 'season' | 'global';
+
 export interface TaskAttachment {
   path: string;                  // Full file path
   name: string;                  // Display name (filename)
   type: 'image' | 'pdf' | 'document' | 'other';
   size?: number;                 // File size in bytes
+}
+
+/** A single comment on a kanban task (local or mirrored from Jira). */
+export interface KanbanComment {
+  id: string;
+  author: string;                // agentId | 'user' | jira accountId
+  authorName?: string;
+  body: string;
+  createdAt: string;
+  updatedAt?: string;
+  source: 'local' | 'jira';
+  jiraCommentId?: string;
 }
 
 export interface KanbanTask {
@@ -32,6 +50,23 @@ export interface KanbanTask {
   labels: string[];
   completionSummary?: string;    // Summary of what was done by the agent
   attachments: TaskAttachment[]; // Files attached to the task
+
+  // --- Season + Jira-style hierarchy (all optional, back-compatible) ---
+  seasonId?: string;             // Owning season (undefined = global/manual/legacy)
+  issueType?: KanbanIssueType;   // Treat missing as 'task' everywhere
+  parentId?: string;             // story → epic id; task → story id
+  comments?: KanbanComment[];    // Comment thread
+  jiraKey?: string;              // Reserved for Jira sync (display only)
+  jiraStatus?: string;           // Reserved for Jira sync (display only)
+  epicColor?: string;            // Optional grouping color for epics
+
+  // --- Branch-per-Epic + PR-on-completion (17e). Set only on epics/stories. ---
+  branch?: string;               // `echelon-team-factory/<slug>` branch for this epic/story
+  prUrl?: string;                // GitHub PR URL once opened on completion
+  prNumber?: number;             // GitHub PR number
+  prState?: 'open' | 'merged' | 'closed';
+  /** Human-approval gate (seam for #22). `auto-approved` when no human team. */
+  reviewGate?: 'pending-human' | 'auto-approved' | 'approved';
 }
 
 export interface KanbanTaskCreate {
@@ -43,6 +78,25 @@ export interface KanbanTaskCreate {
   priority?: 'low' | 'medium' | 'high';
   labels?: string[];
   attachments?: TaskAttachment[];
+  // Season + Jira-style hierarchy (all optional, back-compatible)
+  seasonId?: string;
+  issueType?: KanbanIssueType;
+  parentId?: string;
+  jiraKey?: string;
+}
+
+/** Options for filtering the kanban list by season scope. */
+export interface KanbanListOptions {
+  seasonId?: string;
+  scope?: KanbanScope;
+}
+
+/** Input shape for adding a comment to a task. */
+export interface KanbanCommentCreate {
+  author: string;
+  authorName?: string;
+  body: string;
+  source?: 'local' | 'jira';
 }
 
 export interface KanbanTaskUpdate {

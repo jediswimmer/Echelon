@@ -1,6 +1,13 @@
 ---
 character_name: Linus Torvalds
 archetype: advisory-board-sme
+theme: tbbt
+beat_interval: event-driven
+silent_fail_checks:
+  - code_context_available
+  - framework_documentation_accessible
+  - prior_backend_decisions_loaded
+  - mempalace_available
 ---
 
 # HEARTBEAT.md — Linus Torvalds's Heartbeat Configuration

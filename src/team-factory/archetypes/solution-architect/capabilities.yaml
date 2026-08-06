@@ -1,6 +1,6 @@
 required_capabilities:
   - source-control:read
   - knowledge-retrieval:read
-  - knowledge-retrieval:write
+  - knowledge-capture:write   # a solution architect captures decisions (ADRs/patterns); matches agent.config.yaml + access-matrix
 
 forbidden_capabilities: []

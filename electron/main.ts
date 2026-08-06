@@ -460,7 +460,18 @@ app.whenReady().then(async () => {
   registerKbHandlers({ getMainWindow });
 
   // Register season (Echelon) handlers
-  registerSeasonHandlers({ getMainWindow });
+  registerSeasonHandlers({
+    getMainWindow,
+    getAppSettings: () => appSettings,
+    handleStatusChangeNotification: handleStatusChangeNotificationWrapper,
+    initAgentPty: (agent: AgentStatus) => initAgentPty(
+      agent,
+      getMainWindow(),
+      handleStatusChangeNotificationWrapper,
+      saveAgents
+    ),
+    saveAgents,
+  });
 
   // Register counselor (multi-model consensus) handlers
   registerCounselorHandlers({ getMainWindow, getAppSettings: () => appSettings });

@@ -1,6 +1,13 @@
 ---
 character_name: Bill Gates
 archetype: advisory-board-sme
+theme: tbbt
+beat_interval: event-driven
+silent_fail_checks:
+  - platform_pricing_data_accessible
+  - prior_platform_decisions_loaded
+  - compliance_requirements_known
+  - mempalace_available
 ---
 
 # HEARTBEAT.md — Bill Gates's Heartbeat Configuration

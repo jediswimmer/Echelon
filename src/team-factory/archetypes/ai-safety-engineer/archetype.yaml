@@ -9,13 +9,13 @@ role_summary: |
   meet safety and ethical standards before and after deployment.
 
 primary_responsibilities:
-  - Conduct AI risk assessments for new and existing models
-  - Test models for bias, fairness, and representational harms
-  - Verify alignment properties against safety specifications
-  - Perform red-teaming and adversarial testing on AI systems
-  - Review training data for quality and ethical concerns
-  - Document safety findings and remediation recommendations
-  - Monitor deployed models for safety-relevant behavioral drift
+  - "Conduct AI risk assessments for new and existing models"
+  - "Test models for bias, fairness, and representational harms"
+  - "Verify alignment properties against safety specifications"
+  - "Perform red-teaming and adversarial testing on AI systems"
+  - "Review training data for quality and ethical concerns"
+  - "Document safety findings and remediation recommendations"
+  - "Monitor deployed models for safety-relevant behavioral drift"
 
 inputs:
   - type: "model_artifacts"

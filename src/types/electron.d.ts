@@ -22,6 +22,123 @@ export interface AgentEvent {
   exitCode?: number;
 }
 
+export type KanbanIssueTypeElectron = 'epic' | 'story' | 'task';
+export type KanbanScopeElectron = 'all' | 'season' | 'global';
+
+/** Per-season operating mode (#22a). Missing ⇒ treated as 'autonomous'. */
+export type SeasonMode = 'autonomous' | 'collaborative';
+
+/** One human-owned seat in a collaborative season (#22a). */
+export interface HumanSeat {
+  id: string;
+  archetypeId: string;
+  roleName?: string;
+  source: 'github' | 'jira' | 'manual';
+  handle: string;
+  displayName?: string;
+}
+
+/** Candidate humans to map onto roles, grouped by source (#22a). */
+export interface HumanTeamCandidates {
+  github: Array<{ login: string; name?: string }>;
+  jira: Array<{ accountId: string; displayName: string; email?: string }>;
+  reasons: { github?: string; jira?: string };
+}
+
+/** Kind of team ceremony on a season's calendar (#22b). */
+export type CeremonyKind = 'standup' | 'grooming' | 'sprint-end' | 'team-meeting' | 'custom';
+
+/** How often a ceremony repeats (#22b). */
+export type CeremonyCadence = 'daily' | 'weekly' | 'biweekly' | 'once';
+
+/** One configured ceremony on a season's calendar (#22b). */
+export interface SeasonCeremony {
+  id: string;
+  kind: CeremonyKind;
+  title: string;
+  cadence: CeremonyCadence;
+  dayOfWeek?: number;
+  time?: string;
+  startDate?: string;
+  durationMins?: number;
+  meetingLink?: string;
+  notes?: string;
+  createdAt: string;
+}
+
+/** Loose input for adding/updating a ceremony (#22b) — id/createdAt are filled. */
+export type SeasonCeremonyInput = Partial<Omit<SeasonCeremony, 'id' | 'createdAt'>>;
+
+/** A discussion item / open question raised after absorbing a meeting (#22c). */
+export interface MeetingFollowUp {
+  id: string;
+  question: string;
+  status: 'open' | 'resolved';
+  ceremonyId?: string;
+  createdAt: string;
+  resolvedAt?: string;
+}
+
+/** The structured result of absorbing one meeting transcript (#22c). */
+export interface MeetingAbsorption {
+  id: string;
+  ceremonyId?: string;
+  at: string;
+  summary: string;
+  decisions: string[];
+  actionItemTaskIds: string[];
+}
+
+/** Result of absorbing a meeting transcript (#22c). Never thrown. */
+export interface AbsorbTranscriptResult {
+  ok: boolean;
+  summary?: string;
+  actionItems?: number;
+  questions?: number;
+  decisions?: number;
+  error?: string;
+}
+
+/** A request to grow the team mid-season (#19). */
+export interface ExpansionRequest {
+  id: string;
+  archetype?: string;
+  role: string;
+  reason: string;
+  requestedByAgentId?: string;
+  requestedByName?: string;
+  status: 'pending' | 'approved' | 'declined';
+  createdAt: string;
+  resolvedAt?: string;
+  resultAgentId?: string;
+}
+
+/** A selectable archetype for the manual "Add a team member" picker (#19). */
+export interface ArchetypeOption {
+  archetype: string;
+  character?: string;
+  label: string;
+}
+
+/** Result of casting + launching a new teammate (#19). Never thrown. */
+export interface ExpandSeasonResult {
+  ok: boolean;
+  agentId?: string;
+  character?: string;
+  error?: string;
+}
+
+export interface KanbanCommentElectron {
+  id: string;
+  author: string;
+  authorName?: string;
+  body: string;
+  createdAt: string;
+  updatedAt?: string;
+  source: 'local' | 'jira';
+  jiraCommentId?: string;
+}
+
 export interface KanbanTaskElectron {
   id: string;
   title: string;
@@ -37,6 +154,60 @@ export interface KanbanTaskElectron {
   updatedAt: string;
   order: number;
   labels: string[];
+  // Season + Jira-style hierarchy (all optional, back-compatible)
+  seasonId?: string;
+  issueType?: KanbanIssueTypeElectron;
+  parentId?: string;
+  comments?: KanbanCommentElectron[];
+  jiraKey?: string;
+  jiraStatus?: string;
+  epicColor?: string;
+  // Branch-per-Epic + PR-on-completion (17e). Set only on epics/stories.
+  branch?: string;
+  prUrl?: string;
+  prNumber?: number;
+  prState?: 'open' | 'merged' | 'closed';
+  reviewGate?: 'pending-human' | 'auto-approved' | 'approved';
+}
+
+// Season direction request (17c) — brownfield "needs your direction" prompt.
+export interface SeasonDirectionOptionElectron {
+  id: string;
+  title: string;
+  kind: 'epic' | 'story';
+}
+
+export interface SeasonDirectionRequestElectron {
+  id: string;
+  question: string;
+  options: SeasonDirectionOptionElectron[];
+  status: 'open' | 'answered';
+  answer?: string;
+  chosenOptionId?: string;
+  createdAt: string;
+  answeredAt?: string;
+}
+
+// Season conversation / crosstalk log (17b).
+export type ConversationKind = 'output' | 'status' | 'delegation' | 'system';
+
+export interface ConversationEntry {
+  id: string;
+  ts: string;
+  seasonId: string;
+  agentId: string;
+  archetypeId?: string;
+  canonName?: string;
+  kind: ConversationKind;
+  text: string;
+  meta?: {
+    status?: string;
+    waitingReason?: string;
+    currentTask?: string;
+    fromAgentId?: string;
+    fromName?: string;
+    sessionId?: string;
+  };
 }
 
 export interface VaultDocumentElectron {
@@ -745,7 +916,7 @@ export interface ElectronAPI {
 
   // Kanban board
   kanban?: {
-    list: () => Promise<{ tasks: KanbanTaskElectron[]; error?: string }>;
+    list: (opts?: { seasonId?: string; scope?: KanbanScopeElectron }) => Promise<{ tasks: KanbanTaskElectron[]; error?: string }>;
     get: (id: string) => Promise<{ success: boolean; task?: KanbanTaskElectron; error?: string }>;
     create: (params: {
       title: string;
@@ -755,6 +926,10 @@ export interface ElectronAPI {
       requiredSkills?: string[];
       priority?: 'low' | 'medium' | 'high';
       labels?: string[];
+      seasonId?: string;
+      issueType?: KanbanIssueTypeElectron;
+      parentId?: string;
+      jiraKey?: string;
     }) => Promise<{ success: boolean; task?: KanbanTaskElectron; error?: string }>;
     update: (params: {
       id: string;
@@ -798,9 +973,128 @@ export interface ElectronAPI {
       };
       error?: string;
     }>;
+    commentList: (taskId: string) => Promise<{ success: boolean; comments: KanbanCommentElectron[]; error?: string }>;
+    commentAdd: (taskId: string, comment: {
+      author: string;
+      authorName?: string;
+      body: string;
+      source?: 'local' | 'jira';
+    }) => Promise<{ success: boolean; comment?: KanbanCommentElectron; error?: string }>;
+    commentDelete: (taskId: string, commentId: string) => Promise<{ success: boolean; error?: string }>;
     onTaskCreated: (callback: (task: KanbanTaskElectron) => void) => () => void;
     onTaskUpdated: (callback: (task: KanbanTaskElectron) => void) => () => void;
     onTaskDeleted: (callback: (event: { id: string }) => void) => () => void;
+  };
+
+  // Seasons (Echelon) — minimal typing for the kanban scope selector.
+  // The full surface is consumed elsewhere via a loose `any` cast.
+  season?: {
+    list: () => Promise<{ seasons: Array<{ id: string; name: string }>; error?: string }>;
+    // Conversation / crosstalk log (17b).
+    conversation?: {
+      list: (
+        seasonId: string,
+        opts?: { kind?: ConversationKind; agentId?: string; limit?: number; sinceTs?: string },
+      ) => Promise<{ entries: ConversationEntry[]; error?: string }>;
+      onAppended: (callback: (entry: ConversationEntry) => void) => () => void;
+    };
+    // Direction request (17c): answer the "needs your direction" prompt.
+    direction?: {
+      answer: (
+        seasonId: string,
+        payload: { answer?: string; chosenOptionId?: string },
+      ) => Promise<{ success: boolean; season?: unknown; error?: string }>;
+    };
+    // Two-way Jira sync (17d): import the linked project's issues; query status.
+    jira?: {
+      import: (
+        seasonId: string,
+      ) => Promise<{ imported: number; updated: number; ran: boolean; error?: string }>;
+      status: (
+        seasonId: string,
+      ) => Promise<{ enabled: boolean; projectKey?: string; reason?: string }>;
+    };
+    // Branch-per-Epic + PR-on-completion (17e): open the team-factory PR for an
+    // epic/story from the board. Never auto-merges.
+    epic?: {
+      openPR: (
+        seasonId: string,
+        epicTaskId: string,
+      ) => Promise<{
+        opened: boolean;
+        prUrl?: string;
+        prNumber?: number;
+        branch?: string;
+        reviewGate?: 'pending-human' | 'auto-approved' | 'approved';
+        reason?: string;
+      }>;
+    };
+    // Season mode (#22a): autonomous vs collaborative operating mode.
+    mode?: {
+      set: (
+        seasonId: string,
+        mode: SeasonMode,
+      ) => Promise<{ success: boolean; season?: unknown; error?: string }>;
+    };
+    // Human hybrid dev team (#22a): map real GitHub/Jira users onto roles, and
+    // fetch the candidate humans to assign.
+    humanTeam?: {
+      set: (
+        seasonId: string,
+        seats: HumanSeat[],
+      ) => Promise<{ success: boolean; season?: unknown; error?: string }>;
+      candidates: (seasonId: string) => Promise<HumanTeamCandidates>;
+    };
+    // Ceremony calendar (#22b): per-season standups/grooming/reviews/meetings.
+    ceremonies?: {
+      add: (
+        seasonId: string,
+        input: SeasonCeremonyInput,
+      ) => Promise<{ success: boolean; season?: unknown; error?: string }>;
+      update: (
+        seasonId: string,
+        ceremonyId: string,
+        patch: SeasonCeremonyInput,
+      ) => Promise<{ success: boolean; season?: unknown; error?: string }>;
+      remove: (
+        seasonId: string,
+        ceremonyId: string,
+      ) => Promise<{ success: boolean; season?: unknown; error?: string }>;
+    };
+    // Primary-contact agent + meeting transcript absorption (#22c).
+    meeting?: {
+      setPrimaryContact: (
+        seasonId: string,
+        agentId: string,
+      ) => Promise<{ success: boolean; season?: unknown; error?: string }>;
+      absorb: (
+        seasonId: string,
+        payload: { ceremonyId?: string; transcript: string },
+      ) => Promise<AbsorbTranscriptResult>;
+      resolveFollowUp: (
+        seasonId: string,
+        followUpId: string,
+      ) => Promise<{ success: boolean; season?: unknown; error?: string }>;
+    };
+    // On-demand / ad-hoc team expansion (#19): list the archetype catalog for the
+    // manual-add picker.
+    archetypes?: {
+      list: () => Promise<{ archetypes: ArchetypeOption[]; error?: string }>;
+    };
+    // Manually add a teammate (auto-approved) or approve/decline a pending request
+    // a running agent surfaced (#19).
+    expansion?: {
+      add: (
+        seasonId: string,
+        input: { archetype: string; character?: string; reason?: string },
+      ) => Promise<ExpandSeasonResult>;
+      approve: (seasonId: string, requestId: string) => Promise<ExpandSeasonResult>;
+      decline: (
+        seasonId: string,
+        requestId: string,
+      ) => Promise<{ success: boolean; season?: unknown; error?: string }>;
+    };
+    [key: string]: unknown;
   };
 
   // World (generative zones)

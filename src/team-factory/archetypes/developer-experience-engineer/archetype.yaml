@@ -9,13 +9,13 @@ role_summary: |
   for both external consumers and internal engineering teams.
 
 primary_responsibilities:
-  - Design and implement SDK APIs for external consumers
-  - Build and maintain developer tooling and CLI utilities
-  - Create onboarding workflows and starter templates
-  - Improve internal developer productivity through automation
-  - Maintain developer documentation and code examples
-  - Instrument developer workflows to measure friction points
-  - Evaluate and integrate third-party developer tools
+  - "Design and implement SDK APIs for external consumers"
+  - "Build and maintain developer tooling and CLI utilities"
+  - "Create onboarding workflows and starter templates"
+  - "Improve internal developer productivity through automation"
+  - "Maintain developer documentation and code examples"
+  - "Instrument developer workflows to measure friction points"
+  - "Evaluate and integrate third-party developer tools"
 
 inputs:
   - type: "source_code"

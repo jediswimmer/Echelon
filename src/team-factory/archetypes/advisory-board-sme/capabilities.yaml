@@ -1,0 +1,29 @@
+required_capabilities:
+  - knowledge-retrieval:read       # reads prior consults, ADRs, and decisions to ground every answer before consulting
+  - knowledge-capture:write        # persists each consultation (question, domain, confidence, outcome) to the company advisory log
+  - counselor-invocation:execute   # PER-INSTANCE: granted ONLY to the steve-jobs SME (per access-matrix); permits convening the Counselor
+
+forbidden_capabilities:
+  - source-control:read            # the board does not read or touch the codebase
+  - source-control:write           # never writes code or commits
+  - source-control:admin           # holds no merge authority
+  - deployment:read                # never operates or observes infrastructure
+  - deployment:write               # never deploys to any environment
+  - delegation:write               # advisory only; it does not issue or route work (the convener routes consults)
+  - quality-gate:approve           # may be SEATED in a Counselor placement, but never approves a review gate as a role
+  - quality-gate:override          # never overrides a gate; that is a CEO / orchestrator / convener function
+  - policy:admin                   # holds no policy authority; the guardrail policy is the CEO's to steward
+  - capability-grant               # never grants scopes to any agent
+  - inter-agent-protocol:admin     # consumes the protocol to receive consults; never administers routing
+
+# Per-instance grant (the pool's granted set is a union; the projector applies these per casting):
+#   - steve-jobs SME instance: granted counselor-invocation:execute (per capabilities/access-matrix.yaml
+#     _advisory_board.steve-jobs). This SME may CONVENE the Counselor.
+#   - the other 11 SME instances: counselor-invocation:execute is REMOVED. They may be SEATED into a
+#     Counselor placement and cast one verdict, but they may not convene a placement.
+#
+# Note: an advisory SME is a non-line role. It reads knowledge, captures consults, and (for the one
+# SME so granted) may convene the Counselor — and nothing else. All line authority (source-control,
+# deployment, delegation, gate approval/override, policy, capability-grant) is explicitly forbidden.
+# Being seated in a Counselor placement is NOT quality-gate:approve: the placement verdict is cast via
+# counselor-invocation flow under the convener's synthesis, not via the role's own gate scope.

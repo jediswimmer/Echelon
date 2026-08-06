@@ -9,13 +9,13 @@ role_summary: |
   raw data and business decisions.
 
 primary_responsibilities:
-  - Design and analyze A/B tests and experiments
-  - Perform statistical analysis on product and business data
-  - Build exploratory data analysis notebooks and reports
-  - Define and validate success metrics for features
-  - Create data visualizations and insight presentations
-  - Develop statistical models for forecasting and segmentation
-  - Collaborate with product teams to inform data-driven decisions
+  - "Design and analyze A/B tests and experiments"
+  - "Perform statistical analysis on product and business data"
+  - "Build exploratory data analysis notebooks and reports"
+  - "Define and validate success metrics for features"
+  - "Create data visualizations and insight presentations"
+  - "Develop statistical models for forecasting and segmentation"
+  - "Collaborate with product teams to inform data-driven decisions"
 
 inputs:
   - type: "datasets"

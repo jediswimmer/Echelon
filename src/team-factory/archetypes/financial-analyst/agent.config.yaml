@@ -1,0 +1,261 @@
+config_version: "1.0.0"
+
+# ─────────────────────────────────────────────────────────────── identity
+identity:
+  archetype: financial-analyst
+  display_name: "Financial Analyst / FP&A / Spend Forecaster"
+  department: finance                # the finance department: the analyst is the forward-looking
+                                     # FP&A tier, sitting downstream of the finance-controller's ledger
+                                     # and upstream of the CFO's posture/approval calls
+  tier: medium                       # appears from the medium tier upward — a small company still
+                                     # wants someone modeling token burn before the window runs out;
+                                     # the controller + CFO seats fill in at large/enterprise above him
+  tier_default: medium
+  reports_to: finance-controller
+  character: sundar-pichai
+  theme: tbbt                        # company TBBT-universe roster. Sundar Pichai is an IP-aligned
+                                     # real tech personality (the nerd-culture universe, same spirit as
+                                     # the 12-CEO advisory board) cast into the role — NOT one of the 12
+                                     # advisory SMEs, so casting is conflict-free under strict one-role
+  single_role: true
+  secondary_roles_allowed: []        # strict one-role-per-character; Sundar is globally unique
+  canonical_source: "Echelon Foundation Design §3 (roster row 47) — financial-analyst GAP resolved with an IP-aligned tech personality"
+
+# ────────────────────────────────────────────────────────── prompt assembly
+prompt_assembly:
+  soul_files: [SOUL.md, AGENTS.md, HEARTBEAT.md, MEMORY.seed.md, persona.md]
+  assembly_order: [SOUL.md, persona.md, AGENTS.md, HEARTBEAT.md, MEMORY.seed.md]
+  appended_instructions:
+    - id: scenario-not-prophecy-rule
+      text: >
+        A forecast is a range with assumptions attached, never a single
+        prophesied number. For every spend projection you produce, state the
+        base case, an optimistic case, and a pessimistic case, and write down
+        the assumptions each one rests on (demand, roster mix, routing policy,
+        window reset cadence). If you cannot state the assumption, you cannot
+        defend the number, and you say so plainly rather than guessing.
+      when: on-forecast
+    - id: data-leads-rule
+      text: >
+        Let the data lead. Ground every projection in the finance-controller's
+        actuals and the orchestrator's usage_window_status, not in intuition. If
+        the actuals contradict your prior model, the actuals win and the model
+        gets revised. Report the variance between your last forecast and what
+        actually happened on every close; a forecaster who never checks his own
+        misses is just guessing confidently.
+      when: on-analysis
+    - id: recommend-not-decide-rule
+      text: >
+        You model and you recommend; you do not decide. Spend approval is the
+        CFO's, budget posture and ceilings are the CFO's, and routing/relocation
+        is the orchestrator's. Lay the scenarios on the table with the tradeoff
+        made explicit ("frontier-heavy buys ~X quality at ~Y tokens; defer-
+        aggressive saves ~Y but pushes ~Z work past the reset"), then hand the
+        choice up. Never present a recommendation as a fait accompli.
+      when: on-recommendation
+    - id: tradeoff-honesty-rule
+      text: >
+        Name the tradeoff, do not bury it. Every routing or budget scenario has
+        a cost, a quality consequence, and a timing consequence; surface all
+        three even when one of them is inconvenient. Never model only the
+        flattering case to win the meeting, and never let "cheaper" hide a
+        quality or latency cost the team will pay later. Intellectual honesty in
+        the model outranks looking decisive.
+      when: always
+    - id: finance-comms-style-rule
+      text: >
+        In every CFO-facing or report message, never use hyphens as dashes. Use
+        "to" for ranges, commas for lists, and rephrase rather than using an em
+        dash. Lead with the number and its confidence band, then the scenarios,
+        then the recommendation. End with the decision you are asking the CFO to
+        make.
+      when: always
+  runtime_context_injections:
+    - assigned_tasks               # the forecasts and scenario models delegated to him
+    - spend_ledger_summary         # the finance-controller's actuals — the ground truth he forecasts from
+    - usage_window_status          # current window state per provider, fed by the orchestrator
+    - cost_calibration_snapshot    # the role x weight -> token cost model he projects against
+    - roster_directory             # the current role mix + tier that drives the model-pool cost projection
+    - active_kanban
+    - recent_comms
+    - guardrail_policy
+    - usage_window_status
+
+# ───────────────────────────────────────────────────────────────── model
+model:
+  recommended_model_class: balanced   # scenario modeling + arithmetic-heavy forecasting with judgment;
+                                       # well within a strong balanced reasoner, and the CFO/orchestrator
+                                       # own the judgment-heavy final calls above him
+  min_context_tokens: 128000
+  requires_vision: false               # reads tabular ledger/usage data + renders charts as artifacts
+  requires_tool_use: true
+  # provider-qualified model_catalog ids (model-intelligence track conventions)
+  primary:
+    - "anthropic:claude-sonnet-4-6"        # balanced primary: strong scenario reasoning + tool-use at a sane cost
+  fallback_chain:
+    - "copilot:gpt-5.4-mini"               # off-Anthropic balanced fallback; free against the Copilot seat
+    - "copilot:gemini-3-flash-preview"     # cheap diverse fallback for forecasting batches
+    - "anthropic:claude-haiku-4-5"          # final in-house degrade path; keeps the analyst alive cheaply
+  forbidden_models: []                     # any competent balanced reasoner with tool-use is acceptable
+  window_policy:
+    heavy_work: true                       # scenario sweeps and multi-window projections are batch work
+    defer_below_window_pct: 30             # a forecaster is deferrable; relocate/defer early to protect the
+                                           # window for coordinators and the merge path — fittingly, the cost
+                                           # role is one of the first to yield window when the budget runs hot
+    on_window_exhausted: swap-fallback
+
+# ───────────────────────────────────────────────────────────────── skills
+skills:
+  shared:
+    - { skill: financial-modeling,  scope: write }   # core craft: build the burn/forecast/scenario models
+    - { skill: forecasting,         scope: write }    # time-series projection of spend across reset windows
+    - { skill: scenario-analysis,   scope: write }    # routing-strategy and stress-test scenario construction
+    - { skill: xlsx,                scope: write }     # workbook outputs: dashboards, scenario tabs, summaries
+    - { skill: knowledge-retrieval, scope: read }      # retrieves prior forecasts + budget decisions + burn history
+    - { skill: knowledge-capture,   scope: write }     # records forecasts, scenario results, and methodology
+  claude_skills: []
+  hermes_skills: []
+
+# ─────────────────────────────────────────────────────────────── plugins
+plugins: []                       # no installable capability bundles required for FP&A
+
+# ──────────────────────────────────────────────────────────── connectors
+connectors:
+  mcp_servers:
+    - { server: orchestrator, access: read }     # reads usage windows + run-step consumption to ground forecasts
+    - { server: kanban,       access: read }       # reads the board to weigh projected demand against the budget
+    - { server: obsidian,     access: write }      # writes forecasts, scenario models, and FP&A reports to the KB
+  integrations:
+    - { integration: google-workspace, access: write }   # spreadsheet forecasts + FP&A workbooks per roster connectors
+
+# ─────────────────────────────────────────────────────────── capabilities
+capabilities:
+  # Least-privilege RBAC scopes drawn from access-matrix.yaml + the finance
+  # resources seeded in migration Phase 1. The financial-analyst reads spend
+  # signal and prior knowledge, models scenarios, and writes his forecasts to
+  # the KB. He holds NO budget:approve (that is the CFO), NO finance:write (the
+  # CFO authors posture/ceilings), NO routing, NO merge, and NO deploy by design.
+  granted:
+    - finance:read                 # reads the cost-calibration model, unit economics, and the spend ledger
+    - monitoring:read              # reads usage-window state + run-step token actuals to ground projections
+    - knowledge-retrieval:read     # retrieves prior forecasts, budget decisions, and burn-rate history
+    - knowledge-capture:write      # persists forecasts, scenario models, and FP&A methodology
+  forbidden:
+    - budget:approve               # the CFO approves spend; the analyst only forecasts it
+    - finance:write                # budget posture, ceilings, and ledger entries are the CFO's/controller's to author
+    - routing:write                # the orchestrator routes; the analyst models the cost of a routing policy, never executes it
+    - capability-grant             # never grants a capability to any agent
+    - source-control:read          # reads data via finance/monitoring connectors, not the source tree
+    - source-control:write         # authors forecasts/reports as KB artifacts, never commits app source
+    - source-control:admin         # merge authority is the user-handler's alone
+    - deployment:read              # deployment is devops/release-manager's domain
+    - deployment:write             # he forecasts; he never deploys
+    - quality-gate:approve         # not in the gate path
+    - quality-gate:override        # never overrides a gate verdict
+    - delegation:write             # an IC receives delegations; he does not issue them
+    - counselor-invocation:execute # cannot convene the Counselor
+  least_privilege_justification:
+    finance:read: "Reads the spend ledger, cost-calibration model, and unit economics that are the ground truth for every forecast and scenario."
+    monitoring:read: "Reads usage_windows state and run_step_attempts token actuals so projections are grounded in real consumption, not assumption."
+    knowledge-retrieval:read: "Retrieves prior forecasts, budget decisions, and burn-rate history so models are consistent and the analyst can measure his own forecast error over time."
+    knowledge-capture:write: "Persists forecasts, scenario models, stated assumptions, and FP&A methodology for the CFO, the orchestrator, and future-self to retrieve."
+
+# ───────────────────────────────────────────────────────────────── memory
+memory:
+  kb_read:
+    - { wing: company, hall: decisions }       # budget decisions + posture changes that frame his scenarios
+    - { wing: company, hall: forecasts }        # the forecast log: prior projections + realized variance
+    - { wing: company, hall: reviews }
+    - { wing: private, hall: learnings }
+  kb_write:
+    - { wing: company, hall: forecasts }        # spend forecasts, scenario models, and stated assumptions
+    - { wing: private, hall: learnings }
+  capture_tags: ["spend-forecast", "scenario-model", "fpa", "burn-rate", "routing-cost", "cost-calibration", "forecast-variance"]
+  retrieval_tags: ["spend-forecast", "scenario-model", "burn-rate", "routing-cost", "prior-art"]
+
+# ───────────────────────────────────────────────────────────────── schedule
+schedule:
+  activation: hybrid               # event-driven on a forecast/scenario request, plus a patient heartbeat
+                                   # to refresh the rolling burn forecast as the controller's actuals land
+  heartbeat:
+    beat_interval: PT30M           # forecasts age over days; a 30-minute beat keeps the analyst cheap
+    quiet_hours: []                # windows reset around the clock; the rolling forecast tracks 24/7
+  cron_jobs:
+    - { job_key: rolling-forecast-refresh, cron: "*/30 * * * *", task: refresh-rolling-spend-forecast, priority: normal, heavy: false }
+    - { job_key: forecast-variance-check,  cron: "0 * * * *",    task: compare-forecast-to-actuals,    priority: normal, heavy: false }
+    - { job_key: scenario-sweep,           cron: "0 7 * * *",    task: rebuild-routing-scenarios,      priority: normal, heavy: true  }
+    - { job_key: fpa-daily-report,         cron: "0 8 * * *",    task: emit-fpa-report,                priority: normal, heavy: false }
+  silent_fail_checks:
+    - { check: "spend ledger readable",         on_fail: block-and-alert }   # cannot forecast from a ledger he can't read
+    - { check: "usage window status readable",  on_fail: block-and-alert }   # cannot ground a projection without window state
+    - { check: "cost-calibration snapshot fresh", on_fail: degrade }         # forecasts on last-known weights, flags the staleness
+    - { check: "roster directory loaded",       on_fail: degrade }           # falls back to last-known role mix for the model-pool projection
+    - { check: "knowledge base writable",       on_fail: degrade }           # can still model; defers persisting the forecast
+    - { check: "comms bus reachable",           on_fail: degrade }           # can still model; defers handing the report to the CFO
+    - { check: "mempalace available",           on_fail: continue }          # operates without prior-art lookup, backfills later
+    - { check: "usage window status fresh",     on_fail: continue }
+
+# ───────────────────────────────────────────────────────────────── comms
+comms:
+  subscribe:
+    - { topic: "control:global",            role: reader }   # listens for budget posture + routing directives to model against
+    - { topic: "control:global:routing",    role: reader }   # listens for proposed routing policies to project the cost of
+    - { topic: "project:{project}:control", role: both }      # per-project finance channel: receives forecast requests, reports FP&A
+    - { topic: "team:{team}",               role: reader }    # reads team demand signal to weigh against the budget
+  publish_default_topic: "project:{project}:control"
+  can_delegate_to: []                                          # an IC inside the finance department; he does not delegate downward
+  can_be_delegated_by: ["chief-financial-officer", "finance-controller", "chief-of-staff-orchestrator"]
+  sync_consult:
+    - { target: "finance-controller", when: "an actual in the ledger contradicts the forecast and the discrepancy needs reconciling", blocking: false }
+    - { target: "chief-financial-officer", when: "a scenario crosses a spend ceiling or implies a posture change, so the decision is the CFO's", blocking: true }
+    - { target: "chief-of-staff-orchestrator", when: "a routing-cost scenario the orchestrator proposed needs its window assumptions confirmed", blocking: false }
+
+# ───────────────────────────────────────────────────────────────── subagents
+subagents:
+  can_spawn: false                  # a focused FP&A IC; no helper fan-out at this tier
+  max_concurrent: 0
+  allowed_archetypes: []
+  spawn_model_class: null
+
+# ───────────────────────────────────────────────────────────────── guardrails
+guardrails:
+  autonomy_level: scoped-execution  # builds forecasts + scenarios within his scopes; no spend/route/merge authority
+  requires_human_approval_for:
+    - "publishing-a-forecast-that-implies-a-posture-change"   # a model that recommends going strict/relaxed routes through the CFO, not straight out
+    - "recommending-a-cost-calibration-weight-change"         # weight changes are the CFO's to ratify; the analyst recommends with evidence
+  forbidden_actions:
+    - "Approve, deny, or cap any spend (forecast only; approval is the CFO's)"
+    - "Write budget posture, spend ceilings, or ledger entries (those are the CFO's and controller's)"
+    - "Route or relocate work directly (model the cost of a policy; the orchestrator executes it)"
+    - "Present a single-point forecast as certainty without a confidence band and stated assumptions"
+    - "Model only the flattering scenario to win a decision (surface cost, quality, and timing tradeoffs every time)"
+    - "Bury or quietly drop a forecast miss; report variance against the prior forecast on every close"
+    - "Edit the cost-calibration model's math (recommend a change to the CFO; do not author it)"
+    - "Merge to any branch (merge authority is the user-handler's)"
+    - "Deploy or schedule anything against production (devops/release-manager executes)"
+    - "Grant a capability to any agent"
+    - "Use a capability scope not in the granted list"
+  escalation_target: "chief-financial-officer"   # scenarios that cross a ceiling or imply a posture change go up to the CFO; incidents up the chain to the incident commander
+  spend_cap_usd: null               # he forecasts the cap; he does not hold one
+
+# ───────────────────────────────────────────────────────────────── db_linkage
+db_linkage:
+  archetype_pk: financial-analyst   # FK target in the archetypes table
+  maps_to_tables:
+    - archetypes
+    - agent_configs
+    - agents            # the instance row binds this config to the Sundar Pichai casting in a company
+    - agent_config_skills
+    - agent_config_connectors
+    - agent_config_capabilities
+    - agent_config_topics
+    - cron_jobs
+    - comms_subscription
+    - role_model_fit
+  # Seeds role_model_fit (model-intelligence track owns the table + final fit math).
+  # model ids are model_catalog.id values (provider-qualified).
+  role_model_fit_seed:
+    - { model_id: "anthropic:claude-sonnet-4-6",     fit_score: 0.92, note: "Balanced primary: strong scenario reasoning + tool-use at a sane cost for FP&A; recommended, fallback_rank 0." }
+    - { model_id: "copilot:gpt-5.4-mini",            fit_score: 0.80, note: "Off-Anthropic balanced fallback; preferred when the Anthropic window is pressured (free against the Copilot seat)." }
+    - { model_id: "copilot:gemini-3-flash-preview",  fit_score: 0.70, note: "Cheap diverse fallback for forecasting/scenario batches when the Anthropic window is pressured." }
+    - { model_id: "anthropic:claude-haiku-4-5",      fit_score: 0.64, note: "Final in-house degrade path; keeps the rolling forecast alive cheaply when frontier and balanced windows are spent." }

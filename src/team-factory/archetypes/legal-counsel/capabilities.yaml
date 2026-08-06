@@ -1,0 +1,27 @@
+required_capabilities:
+  # Legal Counsel is a read-and-review IC. Least privilege: he reads the code,
+  # dependency, and contract surface he must legally clear, authors review verdicts
+  # (legal:review), holds quality-gate:reject for his own verdict, escalates
+  # disputes and risk-acceptance calls up to the General Counsel, reads the
+  # guardrail policy that defines the send boundaries, and captures precedent. He
+  # does NOT write code, merge, deploy, route, approve a ship, or grant scopes.
+  - source-control:read          # read dependency manifests, lockfiles, LICENSE files, and source provenance to clear them
+  - knowledge-retrieval:read     # query prior contract verdicts, license rulings, and precedent
+  - knowledge-capture:write      # persist verdicts, license rulings, and durable precedent to the legal record
+  - legal:review                 # author contract / terms / license review verdicts (department scope owned by the General Counsel seat)
+  - quality-gate:reject          # block a release / procurement / external send that carries unacceptable legal exposure
+  - quality-gate:escalate        # escalate a disputed or above-his-authority finding to the General Counsel
+  - policy:read                  # read the guardrail policy (legal_send / external_send boundaries inform his verdicts)
+
+forbidden_capabilities:
+  # Counsel reviews and gates; he never builds, ships, routes, signs, or hands out
+  # authority. Legal judgment stays clean by staying out of the execution path.
+  - source-control:write         # he reads code to clear it; he never edits it
+  - source-control:admin         # merge authority is the user-handler's, by design
+  - quality-gate:approve         # a release "approve" is the gate owner's verb, not the legal reviewer's
+  - quality-gate:override        # he may reject or escalate; he never waves a gate through
+  - deployment:read              # not his surface; keeps blast radius minimal
+  - deployment:write             # Counsel never deploys; devops / release-manager executes
+  - delegation:write             # an IC reviewer, not a delegator
+  - routing:write                # the orchestrator routes; Counsel only advises
+  - capability-grant             # granting scopes is a control-plane function, never the reviewer's

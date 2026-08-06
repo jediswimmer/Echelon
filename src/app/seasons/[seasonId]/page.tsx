@@ -1,10 +1,88 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { ArrowLeft, Users, Shield, Settings, Archive, RotateCcw } from 'lucide-react';
+import { ArrowLeft, Users, Shield, Settings, Archive, RotateCcw, MessagesSquare, KanbanSquare, Github, GitBranch, FolderGit2, FolderSearch, FileText, Loader2, Search, ScanSearch, CheckCircle2, AlertTriangle, Compass, UserCog, Bot, Calendar, Clock, Video, Plus, Trash2, Pencil, CalendarPlus, X, UserCheck, ClipboardCheck, MessageCircleQuestion, UserPlus, Check } from 'lucide-react';
 import ThemeBadge from '@/components/Echelon/ThemeBadge';
+import KanbanBoard from '@/components/KanbanBoard';
+import ConversationLogTab from './ConversationLogTab';
 import Link from 'next/link';
+
+interface SeasonSourceControl {
+  type: 'local' | 'github' | 'azure-devops' | 'local-clone';
+  repoUrl?: string;
+  /** Absolute path to the adopted existing clone (only for `local-clone`). */
+  localPath?: string;
+}
+
+type SeasonIntake = 'greenfield' | 'brownfield';
+type SeasonContextStatus = 'greenfield' | 'searching' | 'reviewing' | 'ready' | 'failed';
+type SeasonMode = 'autonomous' | 'collaborative';
+
+/** One human-owned seat in a collaborative season (#22a). */
+interface HumanSeat {
+  id: string;
+  archetypeId: string;
+  roleName?: string;
+  source: 'github' | 'jira' | 'manual';
+  handle: string;
+  displayName?: string;
+}
+
+type CeremonyKind = 'standup' | 'grooming' | 'sprint-end' | 'team-meeting' | 'custom';
+type CeremonyCadence = 'daily' | 'weekly' | 'biweekly' | 'once';
+
+/** One configured ceremony on a season's calendar (#22b). */
+interface SeasonCeremony {
+  id: string;
+  kind: CeremonyKind;
+  title: string;
+  cadence: CeremonyCadence;
+  dayOfWeek?: number;
+  time?: string;
+  startDate?: string;
+  durationMins?: number;
+  meetingLink?: string;
+  notes?: string;
+  createdAt: string;
+}
+
+/** A discussion item / open question raised after absorbing a meeting (#22c). */
+interface MeetingFollowUp {
+  id: string;
+  question: string;
+  status: 'open' | 'resolved';
+  ceremonyId?: string;
+  createdAt: string;
+  resolvedAt?: string;
+}
+
+/** The structured result of absorbing one meeting transcript (#22c). */
+interface MeetingAbsorption {
+  id: string;
+  ceremonyId?: string;
+  at: string;
+  summary: string;
+  decisions: string[];
+  actionItemTaskIds: string[];
+}
+
+interface SeasonDirectionOption {
+  id: string;
+  title: string;
+  kind: 'epic' | 'story';
+}
+
+interface SeasonDirectionRequest {
+  id: string;
+  question: string;
+  options: SeasonDirectionOption[];
+  status: 'open' | 'answered';
+  answer?: string;
+  chosenOptionId?: string;
+  createdAt: string;
+  answeredAt?: string;
+}
 
 interface Season {
   id: string;
@@ -16,9 +94,93 @@ interface Season {
   archivedAt?: string;
   workspacePath: string;
   rosterManifestPath: string;
+  sourceControl?: SeasonSourceControl;
+  jiraProjectKey?: string;
+  intake?: SeasonIntake;
+  contextStatus?: SeasonContextStatus;
+  contextPath?: string;
+  /** PM grooming completed timestamp (17c). */
+  groomedAt?: string;
+  /** Pending "needs your direction" prompt for brownfield seasons (17c). */
+  directionRequest?: SeasonDirectionRequest;
+  /** Operating mode (#22a): autonomous (default) vs collaborative. */
+  mode?: SeasonMode;
+  /** Human hybrid dev team (#22a) — populated in collaborative mode. */
+  humanTeam?: { seats: HumanSeat[] };
+  /** Ceremony calendar (#22b) — standups/grooming/reviews/meetings. */
+  ceremonies?: SeasonCeremony[];
+  /** The designated primary-contact agent (#22c) — attends + summarizes meetings. */
+  primaryContactAgentId?: string;
+  /** Open/resolved discussion items raised after absorbing meetings (#22c). */
+  meetingFollowUps?: MeetingFollowUp[];
+  /** A bounded history of absorbed meeting transcripts (#22c). */
+  meetingAbsorptions?: MeetingAbsorption[];
+  /** On-demand / ad-hoc team expansion requests (#19). */
+  expansionRequests?: ExpansionRequest[];
 }
 
-type Tab = 'roster' | 'gates' | 'settings';
+/** A request to grow the team mid-season (#19). */
+interface ExpansionRequest {
+  id: string;
+  archetype?: string;
+  role: string;
+  reason: string;
+  requestedByAgentId?: string;
+  requestedByName?: string;
+  status: 'pending' | 'approved' | 'declined';
+  createdAt: string;
+  resolvedAt?: string;
+  resultAgentId?: string;
+}
+
+/** A selectable archetype for the manual "Add a team member" picker (#19). */
+interface ArchetypeOption {
+  archetype: string;
+  character?: string;
+  label: string;
+}
+
+/** Chip metadata for the brownfield context-bootstrap status. */
+function contextStatusMeta(status?: SeasonContextStatus): {
+  label: string;
+  Icon: typeof Search;
+  className: string;
+} | null {
+  switch (status) {
+    case 'searching':
+      return { label: 'Searching for context', Icon: Search, className: 'text-blue-500 border-blue-500/30 bg-blue-500/10' };
+    case 'reviewing':
+      return { label: 'Code review in progress', Icon: ScanSearch, className: 'text-amber-500 border-amber-500/30 bg-amber-500/10' };
+    case 'ready':
+      return { label: 'Context ready', Icon: CheckCircle2, className: 'text-green-500 border-green-500/30 bg-green-500/10' };
+    case 'failed':
+      return { label: 'Context bootstrap failed', Icon: AlertTriangle, className: 'text-red-500 border-red-500/30 bg-red-500/10' };
+    case 'greenfield':
+    default:
+      // Greenfield (or unset) seasons show no context chip.
+      return null;
+  }
+}
+
+/** Human label + icon for a source-control linkage. */
+function sourceControlMeta(sc?: SeasonSourceControl): { label: string; Icon: typeof Github } {
+  switch (sc?.type) {
+    case 'github': return { label: 'GitHub', Icon: Github };
+    case 'azure-devops': return { label: 'Azure DevOps', Icon: GitBranch };
+    case 'local-clone': return { label: 'Local clone', Icon: FolderSearch };
+    default: return { label: 'Local workspace', Icon: FolderGit2 };
+  }
+}
+
+/**
+ * The displayable location for a source-control linkage: the repo URL for
+ * remote clones, or the adopted folder path for an existing local clone.
+ */
+function sourceControlLocation(sc?: SeasonSourceControl): string | undefined {
+  return sc?.type === 'local-clone' ? sc.localPath : sc?.repoUrl;
+}
+
+type Tab = 'cast' | 'conversation' | 'tickets' | 'gates' | 'settings';
 
 export default function SeasonDetailPage() {
   const params = useParams();
@@ -27,7 +189,7 @@ export default function SeasonDetailPage() {
 
   const [season, setSeason] = useState<Season | null>(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<Tab>('roster');
+  const [activeTab, setActiveTab] = useState<Tab>('cast');
   const [actionLoading, setActionLoading] = useState(false);
 
   const api = typeof window !== 'undefined'
@@ -112,7 +274,14 @@ export default function SeasonDetailPage() {
   });
 
   const tabs: { key: Tab; label: string; icon: typeof Users }[] = [
-    { key: 'roster', label: 'Roster', icon: Users },
+    { key: 'cast', label: 'Cast', icon: Users },
+    { key: 'conversation', label: 'Conversation log', icon: MessagesSquare },
+    {
+      key: 'tickets',
+      // Surface the linked Jira project right in the tab label when set.
+      label: season.jiraProjectKey ? `Tickets → JIRA ${season.jiraProjectKey.toUpperCase()}` : 'Tickets',
+      icon: KanbanSquare,
+    },
     { key: 'gates', label: 'Review Gates', icon: Shield },
     { key: 'settings', label: 'Settings', icon: Settings },
   ];
@@ -137,6 +306,47 @@ export default function SeasonDetailPage() {
           <p className="text-muted-foreground text-xs mt-0.5">
             Created {createdDate} &middot; {season.characterIds.length} character{season.characterIds.length !== 1 ? 's' : ''}
           </p>
+          {/* Source-control + Jira + context-status chips */}
+          {(season.sourceControl || season.jiraProjectKey || contextStatusMeta(season.contextStatus)) && (
+            <div className="flex items-center flex-wrap gap-1.5 mt-1.5">
+              {(() => {
+                const meta = contextStatusMeta(season.contextStatus);
+                if (!meta) return null;
+                return (
+                  <span className={`inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full border ${meta.className}`}>
+                    {season.contextStatus === 'searching' || season.contextStatus === 'reviewing' ? (
+                      <Loader2 className="w-3 h-3 shrink-0 animate-spin" />
+                    ) : (
+                      <meta.Icon className="w-3 h-3 shrink-0" />
+                    )}
+                    <span className="font-medium">{meta.label}</span>
+                  </span>
+                );
+              })()}
+              {season.sourceControl && (() => {
+                const meta = sourceControlMeta(season.sourceControl);
+                const location = sourceControlLocation(season.sourceControl);
+                return (
+                  <span
+                    className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-secondary border border-border text-muted-foreground max-w-full"
+                    title={location || meta.label}
+                  >
+                    <meta.Icon className="w-3 h-3 shrink-0" />
+                    <span className="font-medium text-foreground">{meta.label}</span>
+                    {location && (
+                      <span className="font-mono truncate max-w-[14rem]">{location}</span>
+                    )}
+                  </span>
+                );
+              })()}
+              {season.jiraProjectKey && (
+                <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-secondary border border-border text-muted-foreground">
+                  <KanbanSquare className="w-3 h-3 shrink-0" />
+                  <span className="font-medium text-foreground">JIRA {season.jiraProjectKey.toUpperCase()}</span>
+                </span>
+              )}
+            </div>
+          )}
         </div>
         <div className="flex items-center gap-2">
           {season.status === 'archived' ? (
@@ -161,6 +371,12 @@ export default function SeasonDetailPage() {
         </div>
       </div>
 
+      {/* Direction request (17c): the team needs the user to pick a starting point. */}
+      <DirectionCard season={season} />
+
+      {/* Season mode (#22a): autonomous vs collaborative + the human-team panel. */}
+      <SeasonModeCard season={season} />
+
       {/* Tabs */}
       <div className="flex items-center gap-2 mb-4 border-b border-border">
         {tabs.map(tab => (
@@ -183,7 +399,11 @@ export default function SeasonDetailPage() {
 
       {/* Tab content */}
       <div className="flex-1 min-h-0 overflow-y-auto pb-4">
-        {activeTab === 'roster' && <RosterTab season={season} />}
+        {activeTab === 'cast' && <CastTab season={season} />}
+        {activeTab === 'conversation' && (
+          <ConversationLogTab seasonId={season.id} characterIds={season.characterIds} />
+        )}
+        {activeTab === 'tickets' && <TicketsTab season={season} />}
         {activeTab === 'gates' && <GatesTab season={season} />}
         {activeTab === 'settings' && <SettingsTab season={season} />}
       </div>
@@ -191,37 +411,1890 @@ export default function SeasonDetailPage() {
   );
 }
 
-/* ─── Roster Tab ─────────────────────────────────────────────── */
+/* ─── Cast Tab (control board) ───────────────────────────────── */
 
-function RosterTab({ season }: { season: Season }) {
-  if (season.characterIds.length === 0) {
+interface CastAgent {
+  id: string;
+  name?: string;
+  canonName?: string;
+  archetypeId?: string;
+  status: string;
+  model?: string;
+  permissionMode?: 'normal' | 'auto' | 'bypass';
+  output?: string[];
+}
+
+/** Strip ANSI escape codes for plain-text preview. */
+function stripAnsi(s: string): string {
+  // eslint-disable-next-line no-control-regex
+  return s.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '').replace(/\x1b\][^\x07]*\x07/g, '');
+}
+
+/** Human label for a season permission posture. */
+function postureLabel(mode?: string): string {
+  switch (mode) {
+    case 'bypass': return 'Autonomous';
+    case 'auto': return 'Auto-approve';
+    case 'normal': return 'Approve each';
+    default: return '—';
+  }
+}
+
+/* ─── Direction card (17c — brownfield "needs your direction") ── */
+
+/**
+ * Prominent prompt shown when a brownfield season's PM has reviewed the repo and
+ * needs the user to pick the first Epic/Story to tackle. The user selects a
+ * candidate (or types free-text) and submits; on answer the season broadcasts an
+ * update and this card collapses to a "Working on: …" confirmation.
+ */
+function DirectionCard({ season }: { season: Season }) {
+  const request = season.directionRequest;
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [freeText, setFreeText] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  const api = typeof window !== 'undefined'
+    ? (window as unknown as { electronAPI: any }).electronAPI
+    : null;
+
+  if (!request) return null;
+
+  // Answered → a compact confirmation of what the team was directed to start.
+  if (request.status === 'answered') {
+    const chosen = request.options.find(o => o.id === request.chosenOptionId);
+    const startedLabel = chosen?.title || request.answer;
+    if (!startedLabel) return null;
     return (
-      <div className="flex flex-col items-center justify-center h-48 text-muted-foreground">
-        <Users className="w-8 h-8 mb-2 opacity-50" />
-        <p className="text-sm">No characters in this season</p>
-        <p className="text-xs mt-1">Characters are added when the season roster is populated</p>
+      <div className="mb-4 bg-card border border-border rounded-lg p-3 flex items-center gap-2">
+        <CheckCircle2 className="w-4 h-4 text-green-500 shrink-0" />
+        <span className="text-sm text-muted-foreground">
+          Working on: <span className="font-medium text-foreground">{startedLabel}</span>
+        </span>
       </div>
     );
   }
 
+  const submit = async () => {
+    if (!api?.season?.direction?.answer || submitting) return;
+    const answer = freeText.trim() || undefined;
+    if (!selectedId && !answer) return;
+    setSubmitting(true);
+    try {
+      await api.season.direction.answer(season.id, {
+        chosenOptionId: selectedId || undefined,
+        answer,
+      });
+      // The card collapses when the `season:updated` broadcast flips status to
+      // 'answered'; no local state change needed.
+    } catch (err) {
+      console.error('Failed to submit direction:', err);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-      {season.characterIds.map(charId => (
-        <div
-          key={charId}
-          className="bg-card border border-border rounded-lg p-4 hover:border-primary/30 transition-colors"
-        >
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
-              <Users className="w-4 h-4 text-primary" />
-            </div>
-            <div className="min-w-0">
-              <p className="text-sm font-medium text-foreground truncate">{charId}</p>
-              <p className="text-xs text-muted-foreground">Character</p>
-            </div>
+    <div className="mb-4 bg-card border border-primary/40 rounded-lg p-4">
+      <div className="flex items-center gap-2 mb-2">
+        <Compass className="w-4 h-4 text-primary shrink-0" />
+        <h3 className="text-sm font-semibold text-foreground">Team needs your direction</h3>
+      </div>
+      <p className="text-xs text-muted-foreground mb-3">{request.question}</p>
+
+      <div className="space-y-1.5 mb-3">
+        {request.options.map(opt => (
+          <button
+            key={opt.id}
+            type="button"
+            onClick={() => { setSelectedId(opt.id); setFreeText(''); }}
+            className={`
+              w-full text-left flex items-center gap-2 px-3 py-2 rounded-lg border text-sm transition-colors
+              ${selectedId === opt.id
+                ? 'border-primary bg-primary/10 text-foreground'
+                : 'border-border bg-secondary/40 text-muted-foreground hover:text-foreground hover:border-primary/30'
+              }
+            `}
+          >
+            <span className="text-[10px] uppercase font-medium px-1.5 py-0.5 rounded bg-secondary border border-border shrink-0">
+              {opt.kind}
+            </span>
+            <span className="truncate">{opt.title}</span>
+          </button>
+        ))}
+      </div>
+
+      <input
+        type="text"
+        value={freeText}
+        onChange={e => { setFreeText(e.target.value); if (e.target.value) setSelectedId(null); }}
+        placeholder="…or describe a different starting point"
+        className="w-full mb-3 px-3 py-2 text-sm rounded-lg bg-background border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/50"
+      />
+
+      <button
+        type="button"
+        onClick={submit}
+        disabled={submitting || (!selectedId && !freeText.trim())}
+        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-50"
+      >
+        {submitting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Compass className="w-3.5 h-3.5" />}
+        Start the team
+      </button>
+    </div>
+  );
+}
+
+/* ─── Season mode + human team (#22a) ────────────────────────── */
+
+/** A role derived from the season's cast (one per archetype). */
+interface SeasonRole {
+  archetypeId: string;
+  roleName: string;
+}
+
+interface HumanTeamCandidates {
+  github: Array<{ login: string; name?: string }>;
+  jira: Array<{ accountId: string; displayName: string; email?: string }>;
+  reasons: { github?: string; jira?: string };
+}
+
+/**
+ * Prominent card with the Autonomous ⟷ Collaborative segmented switch (bound to
+ * `season.mode`, default autonomous). In Collaborative mode it renders the
+ * {@link HumanTeamPanel} to map real GitHub/Jira users onto roles. In Autonomous
+ * mode it notes that fully-autonomous scheduling (usage windows + cron) lands
+ * with #18 (no cron is built here).
+ */
+function SeasonModeCard({ season }: { season: Season }) {
+  const api = typeof window !== 'undefined'
+    ? (window as unknown as { electronAPI: any }).electronAPI
+    : null;
+
+  const mode: SeasonMode = season.mode ?? 'autonomous';
+  const [switching, setSwitching] = useState(false);
+
+  const setMode = async (next: SeasonMode) => {
+    if (!api?.season?.mode?.set || switching || next === mode) return;
+    setSwitching(true);
+    try {
+      await api.season.mode.set(season.id, next);
+      // The `season:updated` broadcast re-renders with the new mode.
+    } catch (err) {
+      console.error('Failed to set season mode:', err);
+    } finally {
+      setSwitching(false);
+    }
+  };
+
+  return (
+    <div className="mb-4 bg-card border border-border rounded-lg p-4">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex items-center gap-2 min-w-0">
+          {mode === 'collaborative' ? (
+            <UserCog className="w-4 h-4 text-primary shrink-0" />
+          ) : (
+            <Bot className="w-4 h-4 text-primary shrink-0" />
+          )}
+          <div className="min-w-0">
+            <h3 className="text-sm font-semibold text-foreground">Team mode</h3>
+            <p className="text-xs text-muted-foreground">
+              {mode === 'collaborative'
+                ? 'A human hybrid dev team works alongside the agents.'
+                : 'The agent team runs the show.'}
+            </p>
           </div>
         </div>
-      ))}
+
+        {/* Segmented Autonomous ⟷ Collaborative switch. */}
+        <div className="inline-flex items-center rounded-lg border border-border bg-secondary/40 p-0.5 shrink-0">
+          {(['autonomous', 'collaborative'] as const).map(opt => {
+            const active = mode === opt;
+            const Icon = opt === 'collaborative' ? UserCog : Bot;
+            return (
+              <button
+                key={opt}
+                type="button"
+                onClick={() => setMode(opt)}
+                disabled={switching}
+                className={`
+                  flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors disabled:opacity-50
+                  ${active
+                    ? 'bg-primary text-primary-foreground'
+                    : 'text-muted-foreground hover:text-foreground'
+                  }
+                `}
+              >
+                {switching && active ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Icon className="w-3.5 h-3.5" />}
+                {opt === 'collaborative' ? 'Collaborative' : 'Autonomous'}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {mode === 'autonomous' ? (
+        <p className="mt-3 text-[11px] text-muted-foreground border-t border-border pt-3">
+          Fully-autonomous scheduling (usage windows + cron) lands with #18.
+        </p>
+      ) : (
+        <>
+          <HumanTeamPanel season={season} />
+          <CeremoniesPanel season={season} />
+          <MeetingIntakePanel season={season} />
+        </>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Collaborative-mode panel (#22a): lists the season's roles (derived from the
+ * cast), shows whether each is Agent-run or Human-run, and lets the user assign a
+ * human per role from GitHub/Jira candidates (or a manual handle). "Save team"
+ * persists the seats via `season.humanTeam.set`; human-owned roles' agents are
+ * stopped backend-side, and the summary reflects human vs agent counts.
+ */
+function HumanTeamPanel({ season }: { season: Season }) {
+  const api = typeof window !== 'undefined'
+    ? (window as unknown as { electronAPI: any }).electronAPI
+    : null;
+
+  const [roles, setRoles] = useState<SeasonRole[]>([]);
+  const [candidates, setCandidates] = useState<HumanTeamCandidates | null>(null);
+  const [loadingCandidates, setLoadingCandidates] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  // archetypeId → the chosen seat (or undefined ⇒ agent-run). Seeded from the
+  // season's persisted humanTeam, then edited locally until "Save team".
+  const [assignments, setAssignments] = useState<Record<string, HumanSeat | undefined>>({});
+  // Per-role free-text manual handle entry (only applied if no picker choice).
+  const [manualHandles, setManualHandles] = useState<Record<string, string>>({});
+
+  // Derive the roles from the cast agents (one entry per archetype).
+  useEffect(() => {
+    if (!api?.agent?.list) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const all: Array<{ id: string; archetypeId?: string; canonName?: string; name?: string }> =
+          await api.agent.list();
+        if (cancelled) return;
+        const byArchetype = new Map<string, SeasonRole>();
+        for (const a of all) {
+          if (!season.characterIds.includes(a.id)) continue;
+          const archetypeId = a.archetypeId;
+          if (!archetypeId) continue;
+          if (!byArchetype.has(archetypeId)) {
+            byArchetype.set(archetypeId, { archetypeId, roleName: a.canonName || a.name || archetypeId });
+          }
+        }
+        // Also surface any human-owned archetype that no longer has a cast agent
+        // (its agent was stopped) so the role stays visible + reassignable.
+        for (const seat of season.humanTeam?.seats ?? []) {
+          if (!byArchetype.has(seat.archetypeId)) {
+            byArchetype.set(seat.archetypeId, {
+              archetypeId: seat.archetypeId,
+              roleName: seat.roleName || seat.archetypeId,
+            });
+          }
+        }
+        setRoles(Array.from(byArchetype.values()));
+      } catch (err) {
+        console.error('Failed to derive season roles:', err);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [season.characterIds.join(','), (season.humanTeam?.seats ?? []).length]);
+
+  // Seed local assignments from the persisted human team.
+  useEffect(() => {
+    const seeded: Record<string, HumanSeat | undefined> = {};
+    for (const seat of season.humanTeam?.seats ?? []) {
+      seeded[seat.archetypeId] = seat;
+    }
+    setAssignments(seeded);
+  }, [season.id, (season.humanTeam?.seats ?? []).map(s => `${s.archetypeId}:${s.handle}`).join(',')]);
+
+  // Fetch GitHub/Jira candidates once (best-effort).
+  useEffect(() => {
+    if (!api?.season?.humanTeam?.candidates) return;
+    let cancelled = false;
+    setLoadingCandidates(true);
+    (async () => {
+      try {
+        const res: HumanTeamCandidates = await api.season.humanTeam.candidates(season.id);
+        if (!cancelled) setCandidates(res);
+      } catch (err) {
+        console.error('Failed to fetch human-team candidates:', err);
+        if (!cancelled) {
+          setCandidates({ github: [], jira: [], reasons: { github: 'Fetch failed.', jira: 'Fetch failed.' } });
+        }
+      } finally {
+        if (!cancelled) setLoadingCandidates(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [season.id]);
+
+  // Apply a picker selection (value format: "github:<login>" / "jira:<accountId>" / "").
+  const assignFromPicker = (role: SeasonRole, value: string) => {
+    setManualHandles(prev => ({ ...prev, [role.archetypeId]: '' }));
+    if (!value) {
+      setAssignments(prev => ({ ...prev, [role.archetypeId]: undefined }));
+      return;
+    }
+    const [source, key] = value.split(/:(.+)/) as ['github' | 'jira', string];
+    let seat: HumanSeat | undefined;
+    if (source === 'github') {
+      const c = candidates?.github.find(g => g.login === key);
+      if (c) {
+        seat = { id: makeId(), archetypeId: role.archetypeId, roleName: role.roleName, source: 'github', handle: c.login, displayName: c.name || c.login };
+      }
+    } else if (source === 'jira') {
+      const c = candidates?.jira.find(j => j.accountId === key);
+      if (c) {
+        seat = { id: makeId(), archetypeId: role.archetypeId, roleName: role.roleName, source: 'jira', handle: c.accountId, displayName: c.displayName };
+      }
+    }
+    if (seat) setAssignments(prev => ({ ...prev, [role.archetypeId]: seat }));
+  };
+
+  const setManual = (role: SeasonRole, handle: string) => {
+    setManualHandles(prev => ({ ...prev, [role.archetypeId]: handle }));
+    const trimmed = handle.trim();
+    setAssignments(prev => ({
+      ...prev,
+      [role.archetypeId]: trimmed
+        ? { id: prev[role.archetypeId]?.id || makeId(), archetypeId: role.archetypeId, roleName: role.roleName, source: 'manual', handle: trimmed, displayName: trimmed }
+        : undefined,
+    }));
+  };
+
+  const humanCount = roles.filter(r => assignments[r.archetypeId]).length;
+  const agentCount = roles.length - humanCount;
+
+  const saveTeam = async () => {
+    if (!api?.season?.humanTeam?.set || saving) return;
+    setSaving(true);
+    try {
+      const seats: HumanSeat[] = roles
+        .map(r => assignments[r.archetypeId])
+        .filter((s): s is HumanSeat => Boolean(s));
+      await api.season.humanTeam.set(season.id, seats);
+      // The `season:updated` broadcast re-seeds the panel.
+    } catch (err) {
+      console.error('Failed to save human team:', err);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="mt-3 border-t border-border pt-3">
+      <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
+        <h4 className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+          <Users className="w-3.5 h-3.5 text-muted-foreground" />
+          Human team
+        </h4>
+        <span className="text-[11px] text-muted-foreground">
+          <span className="text-foreground font-medium">{humanCount}</span> seat{humanCount === 1 ? '' : 's'} human-run,{' '}
+          <span className="text-foreground font-medium">{agentCount}</span> agent-run
+        </span>
+      </div>
+
+      {roles.length === 0 ? (
+        <p className="text-[11px] text-muted-foreground">
+          No roles to populate yet — the cast is assigned when the season spawns.
+        </p>
+      ) : (
+        <>
+          {/* Source-availability hints (best-effort fetch). */}
+          {candidates && (candidates.reasons.github || candidates.reasons.jira) && (
+            <div className="mb-2 space-y-0.5">
+              {candidates.reasons.github && (
+                <p className="text-[10px] text-muted-foreground flex items-center gap-1">
+                  <Github className="w-3 h-3 shrink-0" /> {candidates.reasons.github}
+                </p>
+              )}
+              {candidates.reasons.jira && (
+                <p className="text-[10px] text-muted-foreground flex items-center gap-1">
+                  <KanbanSquare className="w-3 h-3 shrink-0" /> {candidates.reasons.jira}
+                </p>
+              )}
+            </div>
+          )}
+
+          <div className="space-y-1.5">
+            {roles.map(role => {
+              const seat = assignments[role.archetypeId];
+              const isHuman = Boolean(seat);
+              const pickerValue = seat?.source === 'github'
+                ? `github:${seat.handle}`
+                : seat?.source === 'jira'
+                  ? `jira:${seat.handle}`
+                  : '';
+              return (
+                <div
+                  key={role.archetypeId}
+                  className="flex items-center gap-2 px-2.5 py-2 rounded-lg border border-border bg-secondary/30 flex-wrap"
+                >
+                  <span className="flex items-center gap-1.5 min-w-0 flex-1">
+                    {isHuman ? (
+                      <UserCog className="w-3.5 h-3.5 text-primary shrink-0" />
+                    ) : (
+                      <Bot className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                    )}
+                    <span className="text-xs text-foreground truncate" title={role.archetypeId}>
+                      {role.roleName}
+                    </span>
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded shrink-0 border ${isHuman ? 'border-primary/30 bg-primary/10 text-primary' : 'border-border bg-secondary text-muted-foreground'}`}>
+                      {isHuman ? 'Human-run' : 'Agent-run'}
+                    </span>
+                  </span>
+
+                  {/* Candidate picker (GitHub + Jira, grouped). */}
+                  <select
+                    value={pickerValue}
+                    onChange={e => assignFromPicker(role, e.target.value)}
+                    disabled={loadingCandidates}
+                    className="text-[11px] px-2 py-1 rounded-md bg-background border border-border text-foreground focus:outline-none focus:border-primary/50 disabled:opacity-50 max-w-[12rem]"
+                  >
+                    <option value="">Agent-run</option>
+                    {candidates && candidates.github.length > 0 && (
+                      <optgroup label="GitHub">
+                        {candidates.github.map(g => (
+                          <option key={`gh-${g.login}`} value={`github:${g.login}`}>
+                            {g.name ? `${g.name} (@${g.login})` : `@${g.login}`}
+                          </option>
+                        ))}
+                      </optgroup>
+                    )}
+                    {candidates && candidates.jira.length > 0 && (
+                      <optgroup label="Jira">
+                        {candidates.jira.map(j => (
+                          <option key={`jira-${j.accountId}`} value={`jira:${j.accountId}`}>
+                            {j.email ? `${j.displayName} (${j.email})` : j.displayName}
+                          </option>
+                        ))}
+                      </optgroup>
+                    )}
+                  </select>
+
+                  {/* Manual handle entry (used when no picker choice). */}
+                  <input
+                    type="text"
+                    value={manualHandles[role.archetypeId] ?? (seat?.source === 'manual' ? seat.handle : '')}
+                    onChange={e => setManual(role, e.target.value)}
+                    placeholder="or handle…"
+                    className="text-[11px] px-2 py-1 rounded-md bg-background border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/50 w-28"
+                  />
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="flex items-center gap-2 mt-3">
+            <button
+              type="button"
+              onClick={saveTeam}
+              disabled={saving}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-50"
+            >
+              {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Users className="w-3.5 h-3.5" />}
+              Save team
+            </button>
+            {loadingCandidates && (
+              <span className="text-[11px] text-muted-foreground flex items-center gap-1">
+                <Loader2 className="w-3 h-3 animate-spin" /> Loading candidates…
+              </span>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+/** Best-effort id for a new seat (crypto.randomUUID when available). */
+function makeId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `seat-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+/* ─── Ceremony calendar (#22b) ───────────────────────────────── */
+
+const CEREMONY_KIND_LABEL: Record<CeremonyKind, string> = {
+  standup: 'Standup',
+  grooming: 'Grooming',
+  'sprint-end': 'Sprint review',
+  'team-meeting': 'Team meeting',
+  custom: 'Custom',
+};
+
+const CADENCE_LABEL: Record<CeremonyCadence, string> = {
+  daily: 'Daily',
+  weekly: 'Weekly',
+  biweekly: 'Biweekly',
+  once: 'Once',
+};
+
+const DOW_LABEL = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+/**
+ * Compute the next datetime (as a Date) for a ceremony, from `from` (defaults to
+ * now). Pure + robust to missing fields — returns null when not computable.
+ *   • daily             → today at `time` if still ahead, else tomorrow.
+ *   • weekly/biweekly   → the next matching `dayOfWeek` at `time` (biweekly is
+ *     anchored on `startDate` so it lands on an even number of weeks from it).
+ *   • once              → `startDate` (+ `time`).
+ */
+function nextOccurrence(c: SeasonCeremony, from: Date = new Date()): Date | null {
+  // Parse 'HH:MM' → [h, m]; default to 09:00 when absent/invalid.
+  const parseTime = (t?: string): [number, number] => {
+    if (t && /^([01]\d|2[0-3]):[0-5]\d$/.test(t)) {
+      const [h, m] = t.split(':').map(Number);
+      return [h, m];
+    }
+    return [9, 0];
+  };
+  const [hh, mm] = parseTime(c.time);
+
+  if (c.cadence === 'once') {
+    if (!c.startDate || !/^\d{4}-\d{2}-\d{2}$/.test(c.startDate)) return null;
+    const [y, mo, d] = c.startDate.split('-').map(Number);
+    const dt = new Date(y, mo - 1, d, hh, mm, 0, 0);
+    // A one-off whose datetime has passed is no longer "next" — don't surface a
+    // stale agenda row or generate a past Google Calendar event.
+    return dt.getTime() > from.getTime() ? dt : null;
+  }
+
+  if (c.cadence === 'daily') {
+    const candidate = new Date(from.getFullYear(), from.getMonth(), from.getDate(), hh, mm, 0, 0);
+    if (candidate.getTime() <= from.getTime()) candidate.setDate(candidate.getDate() + 1);
+    return candidate;
+  }
+
+  // weekly / biweekly need a target day-of-week.
+  if (typeof c.dayOfWeek !== 'number' || c.dayOfWeek < 0 || c.dayOfWeek > 6) return null;
+  const target = c.dayOfWeek;
+
+  // Find the next date on/after `from` whose weekday === target and time is ahead.
+  const candidate = new Date(from.getFullYear(), from.getMonth(), from.getDate(), hh, mm, 0, 0);
+  let deltaDays = (target - candidate.getDay() + 7) % 7;
+  if (deltaDays === 0 && candidate.getTime() <= from.getTime()) deltaDays = 7;
+  candidate.setDate(candidate.getDate() + deltaDays);
+
+  if (c.cadence === 'biweekly' && c.startDate && /^\d{4}-\d{2}-\d{2}$/.test(c.startDate)) {
+    // Anchor on startDate: if the candidate falls an ODD number of weeks after the
+    // anchor, push it one more week so it stays on the 2-week rhythm. Count whole
+    // calendar days (date-only) so a DST hour-shift can't skew the week parity.
+    const [ay, amo, ad] = c.startDate.split('-').map(Number);
+    const MS_DAY = 24 * 60 * 60 * 1000;
+    const anchorEpoch = new Date(ay, amo - 1, ad).getTime();
+    const candEpoch = new Date(candidate.getFullYear(), candidate.getMonth(), candidate.getDate()).getTime();
+    const weeksDiff = Math.floor(Math.round((candEpoch - anchorEpoch) / MS_DAY) / 7);
+    if (weeksDiff % 2 !== 0) candidate.setDate(candidate.getDate() + 7);
+  }
+
+  return candidate;
+}
+
+/** Human-readable cadence/day/time, e.g. "Weekly · Mon · 09:30". */
+function describeSchedule(c: SeasonCeremony): string {
+  const parts: string[] = [CADENCE_LABEL[c.cadence]];
+  if ((c.cadence === 'weekly' || c.cadence === 'biweekly') && typeof c.dayOfWeek === 'number') {
+    parts.push(DOW_LABEL[c.dayOfWeek] ?? '');
+  }
+  if (c.cadence === 'once' && c.startDate) parts.push(c.startDate);
+  if (c.time) parts.push(c.time);
+  return parts.filter(Boolean).join(' · ');
+}
+
+/** Format a Date as e.g. "Mon Jun 16, 09:30" for the agenda. */
+function formatOccurrence(d: Date): string {
+  const date = d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+  const time = d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+  return `${date}, ${time}`;
+}
+
+/** Pad a number to 2 digits for the YYYYMMDDTHHMMSS Google Calendar format. */
+function pad2(n: number): string {
+  return String(n).padStart(2, '0');
+}
+
+/** Local Date → Google Calendar floating-time stamp `YYYYMMDDTHHMMSS`. */
+function gcalStamp(d: Date): string {
+  return (
+    `${d.getFullYear()}${pad2(d.getMonth() + 1)}${pad2(d.getDate())}` +
+    `T${pad2(d.getHours())}${pad2(d.getMinutes())}${pad2(d.getSeconds())}`
+  );
+}
+
+/**
+ * Build a no-auth "Add to Google Calendar" event-template URL for a ceremony's
+ * next occurrence (no OAuth, no connector). Returns null when there's no
+ * computable occurrence. The `dates` use local floating time so Google shows the
+ * time as entered.
+ */
+function googleCalendarUrl(c: SeasonCeremony): string | null {
+  const start = nextOccurrence(c);
+  if (!start) return null;
+  const durationMins = typeof c.durationMins === 'number' && c.durationMins > 0 ? c.durationMins : 30;
+  const end = new Date(start.getTime() + durationMins * 60 * 1000);
+
+  const detailsParts: string[] = [];
+  if (c.notes) detailsParts.push(c.notes);
+  if (c.meetingLink) detailsParts.push(`Join: ${c.meetingLink}`);
+
+  const params = new URLSearchParams({
+    action: 'TEMPLATE',
+    text: c.title,
+    dates: `${gcalStamp(start)}/${gcalStamp(end)}`,
+  });
+  if (detailsParts.length) params.set('details', detailsParts.join('\n\n'));
+  if (c.meetingLink) params.set('location', c.meetingLink);
+
+  return `https://calendar.google.com/calendar/render?${params.toString()}`;
+}
+
+/** The kind icon for a ceremony row. */
+function ceremonyIcon(kind: CeremonyKind): typeof Calendar {
+  switch (kind) {
+    case 'standup': return Clock;
+    case 'grooming': return KanbanSquare;
+    case 'sprint-end': return CheckCircle2;
+    case 'team-meeting': return Users;
+    default: return Calendar;
+  }
+}
+
+/** A blank draft for the add form. */
+function emptyCeremonyDraft(): SeasonCeremonyDraft {
+  return {
+    kind: 'standup',
+    title: '',
+    cadence: 'daily',
+    dayOfWeek: 1,
+    time: '09:30',
+    startDate: '',
+    durationMins: 30,
+    meetingLink: '',
+    notes: '',
+  };
+}
+
+/** The editable shape of the add/edit form (strings for inputs). */
+interface SeasonCeremonyDraft {
+  kind: CeremonyKind;
+  title: string;
+  cadence: CeremonyCadence;
+  dayOfWeek: number;
+  time: string;
+  startDate: string;
+  durationMins: number;
+  meetingLink: string;
+  notes: string;
+}
+
+/**
+ * Collaborative-mode panel (#22b): the season's ceremony calendar. Shows an
+ * agenda of ceremonies sorted by next occurrence (kind icon, schedule, computed
+ * next time, a Join link when a meeting link is set, an "Add to Google Calendar"
+ * link, and edit/remove controls), plus an add/edit form. Persists via
+ * `season.ceremonies.add/update/remove`; the `season:updated` broadcast keeps
+ * the agenda live.
+ */
+function CeremoniesPanel({ season }: { season: Season }) {
+  const api = typeof window !== 'undefined'
+    ? (window as unknown as { electronAPI: any }).electronAPI
+    : null;
+
+  const ceremonies = Array.isArray(season.ceremonies) ? season.ceremonies : [];
+
+  // null = form closed; '' (new) vs an id (editing existing).
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [formOpen, setFormOpen] = useState(false);
+  const [draft, setDraft] = useState<SeasonCeremonyDraft>(emptyCeremonyDraft());
+  const [saving, setSaving] = useState(false);
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  // Sort the agenda by next occurrence (computable first, ascending); leave
+  // non-computable ceremonies at the end in their stored order.
+  const agenda = ceremonies
+    .map(c => ({ c, next: nextOccurrence(c) }))
+    .sort((a, b) => {
+      if (a.next && b.next) return a.next.getTime() - b.next.getTime();
+      if (a.next) return -1;
+      if (b.next) return 1;
+      return 0;
+    });
+
+  const openAdd = () => {
+    setEditingId('');
+    setDraft(emptyCeremonyDraft());
+    setFormOpen(true);
+  };
+
+  const openEdit = (c: SeasonCeremony) => {
+    setEditingId(c.id);
+    setDraft({
+      kind: c.kind,
+      title: c.title,
+      cadence: c.cadence,
+      dayOfWeek: typeof c.dayOfWeek === 'number' ? c.dayOfWeek : 1,
+      time: c.time ?? '',
+      startDate: c.startDate ?? '',
+      durationMins: typeof c.durationMins === 'number' ? c.durationMins : 30,
+      meetingLink: c.meetingLink ?? '',
+      notes: c.notes ?? '',
+    });
+    setFormOpen(true);
+  };
+
+  const closeForm = () => {
+    setFormOpen(false);
+    setEditingId(null);
+  };
+
+  const openExternal = (url: string) => {
+    // Reuse the existing shell open-external path (allowlisted to http/https).
+    if (api?.shell?.openExternal) {
+      api.shell.openExternal({ url });
+    }
+  };
+
+  const saveDraft = async () => {
+    if (saving) return;
+    const input = {
+      kind: draft.kind,
+      title: draft.title.trim() || CEREMONY_KIND_LABEL[draft.kind],
+      cadence: draft.cadence,
+      dayOfWeek: (draft.cadence === 'weekly' || draft.cadence === 'biweekly') ? draft.dayOfWeek : undefined,
+      time: draft.time.trim() || undefined,
+      startDate: (draft.cadence === 'once' || draft.cadence === 'biweekly') && draft.startDate.trim()
+        ? draft.startDate.trim()
+        : undefined,
+      durationMins: draft.durationMins,
+      meetingLink: draft.meetingLink.trim() || undefined,
+      notes: draft.notes.trim() || undefined,
+    };
+    setSaving(true);
+    try {
+      if (editingId) {
+        if (!api?.season?.ceremonies?.update) return;
+        await api.season.ceremonies.update(season.id, editingId, input);
+      } else {
+        if (!api?.season?.ceremonies?.add) return;
+        await api.season.ceremonies.add(season.id, input);
+      }
+      // The `season:updated` broadcast re-renders the agenda.
+      closeForm();
+    } catch (err) {
+      console.error('Failed to save ceremony:', err);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const removeCeremony = async (id: string) => {
+    if (!api?.season?.ceremonies?.remove || busyId) return;
+    setBusyId(id);
+    try {
+      await api.season.ceremonies.remove(season.id, id);
+    } catch (err) {
+      console.error('Failed to remove ceremony:', err);
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  return (
+    <div className="mt-3 border-t border-border pt-3">
+      <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
+        <h4 className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+          <Calendar className="w-3.5 h-3.5 text-muted-foreground" />
+          Ceremonies
+        </h4>
+        {!formOpen && (
+          <button
+            type="button"
+            onClick={openAdd}
+            className="flex items-center gap-1 px-2 py-1 text-[11px] font-medium bg-secondary text-foreground rounded-md hover:bg-secondary/70 transition-colors border border-border"
+          >
+            <Plus className="w-3 h-3" /> Add ceremony
+          </button>
+        )}
+      </div>
+
+      {agenda.length === 0 && !formOpen ? (
+        <p className="text-[11px] text-muted-foreground">
+          No ceremonies yet — add your standups, grooming, sprint reviews, and team meetings.
+        </p>
+      ) : (
+        <div className="space-y-1.5">
+          {agenda.map(({ c, next }) => {
+            const Icon = ceremonyIcon(c.kind);
+            const gcal = googleCalendarUrl(c);
+            return (
+              <div
+                key={c.id}
+                className="flex items-start gap-2 px-2.5 py-2 rounded-lg border border-border bg-secondary/30 flex-wrap"
+              >
+                <Icon className="w-3.5 h-3.5 text-primary shrink-0 mt-0.5" />
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="text-xs text-foreground font-medium truncate" title={c.title}>
+                      {c.title}
+                    </span>
+                    <span className="text-[10px] px-1.5 py-0.5 rounded shrink-0 border border-border bg-secondary text-muted-foreground">
+                      {CEREMONY_KIND_LABEL[c.kind]}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">
+                    {describeSchedule(c)}
+                    {next && <> · next <span className="text-foreground">{formatOccurrence(next)}</span></>}
+                  </p>
+                  {c.notes && (
+                    <p className="text-[11px] text-muted-foreground mt-0.5 line-clamp-2" title={c.notes}>
+                      {c.notes}
+                    </p>
+                  )}
+                  <div className="flex items-center gap-2 mt-1 flex-wrap">
+                    {c.meetingLink && (
+                      <button
+                        type="button"
+                        onClick={() => openExternal(c.meetingLink!)}
+                        className="flex items-center gap-1 text-[11px] text-primary hover:underline"
+                      >
+                        <Video className="w-3 h-3" /> Join
+                      </button>
+                    )}
+                    {gcal && (
+                      <button
+                        type="button"
+                        onClick={() => openExternal(gcal)}
+                        className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
+                      >
+                        <CalendarPlus className="w-3 h-3" /> Add to Google Calendar
+                      </button>
+                    )}
+                  </div>
+                </div>
+                <div className="flex items-center gap-1 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => openEdit(c)}
+                    title="Edit ceremony"
+                    className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
+                  >
+                    <Pencil className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => removeCeremony(c.id)}
+                    disabled={busyId === c.id}
+                    title="Remove ceremony"
+                    className="p-1 rounded-md text-muted-foreground hover:text-red-500 hover:bg-secondary transition-colors disabled:opacity-50"
+                  >
+                    {busyId === c.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {formOpen && (
+        <div className="mt-2 p-2.5 rounded-lg border border-border bg-background space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-semibold text-foreground">
+              {editingId ? 'Edit ceremony' : 'New ceremony'}
+            </span>
+            <button
+              type="button"
+              onClick={closeForm}
+              className="p-0.5 rounded text-muted-foreground hover:text-foreground"
+              title="Cancel"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            <label className="flex flex-col gap-0.5">
+              <span className="text-[10px] text-muted-foreground">Kind</span>
+              <select
+                value={draft.kind}
+                onChange={e => setDraft(d => ({ ...d, kind: e.target.value as CeremonyKind }))}
+                className="text-[11px] px-2 py-1 rounded-md bg-background border border-border text-foreground focus:outline-none focus:border-primary/50"
+              >
+                {(Object.keys(CEREMONY_KIND_LABEL) as CeremonyKind[]).map(k => (
+                  <option key={k} value={k}>{CEREMONY_KIND_LABEL[k]}</option>
+                ))}
+              </select>
+            </label>
+            <label className="flex flex-col gap-0.5">
+              <span className="text-[10px] text-muted-foreground">Cadence</span>
+              <select
+                value={draft.cadence}
+                onChange={e => setDraft(d => ({ ...d, cadence: e.target.value as CeremonyCadence }))}
+                className="text-[11px] px-2 py-1 rounded-md bg-background border border-border text-foreground focus:outline-none focus:border-primary/50"
+              >
+                {(Object.keys(CADENCE_LABEL) as CeremonyCadence[]).map(c => (
+                  <option key={c} value={c}>{CADENCE_LABEL[c]}</option>
+                ))}
+              </select>
+            </label>
+          </div>
+
+          <label className="flex flex-col gap-0.5">
+            <span className="text-[10px] text-muted-foreground">Title</span>
+            <input
+              type="text"
+              value={draft.title}
+              onChange={e => setDraft(d => ({ ...d, title: e.target.value }))}
+              placeholder={CEREMONY_KIND_LABEL[draft.kind]}
+              className="text-[11px] px-2 py-1 rounded-md bg-background border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/50"
+            />
+          </label>
+
+          <div className="grid grid-cols-3 gap-2">
+            {(draft.cadence === 'weekly' || draft.cadence === 'biweekly') && (
+              <label className="flex flex-col gap-0.5">
+                <span className="text-[10px] text-muted-foreground">Day</span>
+                <select
+                  value={draft.dayOfWeek}
+                  onChange={e => setDraft(d => ({ ...d, dayOfWeek: Number(e.target.value) }))}
+                  className="text-[11px] px-2 py-1 rounded-md bg-background border border-border text-foreground focus:outline-none focus:border-primary/50"
+                >
+                  {DOW_LABEL.map((label, i) => (
+                    <option key={i} value={i}>{label}</option>
+                  ))}
+                </select>
+              </label>
+            )}
+            <label className="flex flex-col gap-0.5">
+              <span className="text-[10px] text-muted-foreground">Time</span>
+              <input
+                type="time"
+                value={draft.time}
+                onChange={e => setDraft(d => ({ ...d, time: e.target.value }))}
+                className="text-[11px] px-2 py-1 rounded-md bg-background border border-border text-foreground focus:outline-none focus:border-primary/50"
+              />
+            </label>
+            <label className="flex flex-col gap-0.5">
+              <span className="text-[10px] text-muted-foreground">Duration (min)</span>
+              <input
+                type="number"
+                min={5}
+                max={720}
+                value={draft.durationMins}
+                onChange={e => setDraft(d => ({ ...d, durationMins: Number(e.target.value) }))}
+                className="text-[11px] px-2 py-1 rounded-md bg-background border border-border text-foreground focus:outline-none focus:border-primary/50"
+              />
+            </label>
+          </div>
+
+          {(draft.cadence === 'once' || draft.cadence === 'biweekly') && (
+            <label className="flex flex-col gap-0.5">
+              <span className="text-[10px] text-muted-foreground">
+                {draft.cadence === 'once' ? 'Date' : 'Anchor date'}
+              </span>
+              <input
+                type="date"
+                value={draft.startDate}
+                onChange={e => setDraft(d => ({ ...d, startDate: e.target.value }))}
+                className="text-[11px] px-2 py-1 rounded-md bg-background border border-border text-foreground focus:outline-none focus:border-primary/50"
+              />
+            </label>
+          )}
+
+          <label className="flex flex-col gap-0.5">
+            <span className="text-[10px] text-muted-foreground">Meeting link</span>
+            <input
+              type="url"
+              value={draft.meetingLink}
+              onChange={e => setDraft(d => ({ ...d, meetingLink: e.target.value }))}
+              placeholder="https://meet.google.com/…"
+              className="text-[11px] px-2 py-1 rounded-md bg-background border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/50"
+            />
+          </label>
+
+          <label className="flex flex-col gap-0.5">
+            <span className="text-[10px] text-muted-foreground">Notes / agenda</span>
+            <textarea
+              value={draft.notes}
+              onChange={e => setDraft(d => ({ ...d, notes: e.target.value }))}
+              rows={2}
+              className="text-[11px] px-2 py-1 rounded-md bg-background border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/50 resize-y"
+            />
+          </label>
+
+          <div className="flex items-center gap-2 pt-0.5">
+            <button
+              type="button"
+              onClick={saveDraft}
+              disabled={saving}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-50"
+            >
+              {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
+              Save
+            </button>
+            <button
+              type="button"
+              onClick={closeForm}
+              className="px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      <p className="mt-2 text-[10px] text-muted-foreground">
+        The primary contact absorbs these meetings' transcripts below.
+        Auto-scheduling on these times is #18.
+      </p>
+    </div>
+  );
+}
+
+/* ─── Meeting intake (#22c — primary contact + transcript absorption) ───────── */
+
+interface CastAgentLite {
+  id: string;
+  archetypeId?: string;
+  canonName?: string;
+  name?: string;
+}
+
+/**
+ * Collaborative-mode panel (#22c / Scott's requirement #11): the meeting
+ * follow-ups + transcript-intake experience.
+ *
+ *   • Primary-contact selector — pick which cast agent attends + summarizes
+ *     meetings (defaults to the convener). Persisted via
+ *     `season.meeting.setPrimaryContact`.
+ *   • "Absorb a transcript" — paste a user-provided meeting transcript (optionally
+ *     tied to a ceremony), click Absorb → `season.meeting.absorb` runs a one-shot
+ *     as the primary contact: a summary, action-item kanban tickets, and follow-up
+ *     questions. The summary + decisions also stream into the Conversation tab.
+ *   • Follow-ups — the open questions the agent raised, each with a Resolve button
+ *     (`season.meeting.resolveFollowUp`). Mirrors the DirectionCard surfacing style.
+ *
+ * Live auto-attendance (joining the call) needs a meeting-bot/transcription
+ * service and is a FUTURE capability — this works from a transcript you provide.
+ */
+function MeetingIntakePanel({ season }: { season: Season }) {
+  const api = typeof window !== 'undefined'
+    ? (window as unknown as { electronAPI: any }).electronAPI
+    : null;
+
+  const [castAgents, setCastAgents] = useState<CastAgentLite[]>([]);
+  const [savingContact, setSavingContact] = useState(false);
+
+  // Transcript intake form state.
+  const [formOpen, setFormOpen] = useState(false);
+  const [transcript, setTranscript] = useState('');
+  const [ceremonyId, setCeremonyId] = useState('');
+  const [absorbing, setAbsorbing] = useState(false);
+  const [result, setResult] = useState<{
+    ok: boolean; summary?: string; actionItems?: number; questions?: number; decisions?: number; error?: string;
+  } | null>(null);
+
+  const [resolvingId, setResolvingId] = useState<string | null>(null);
+
+  const ceremonies = Array.isArray(season.ceremonies) ? season.ceremonies : [];
+  const followUps = Array.isArray(season.meetingFollowUps) ? season.meetingFollowUps : [];
+  const openFollowUps = followUps.filter(f => f.status === 'open');
+  const absorptions = Array.isArray(season.meetingAbsorptions) ? season.meetingAbsorptions : [];
+  const lastAbsorption = absorptions.length > 0 ? absorptions[absorptions.length - 1] : null;
+
+  // Load the cast agents (one option per agent) for the primary-contact picker.
+  useEffect(() => {
+    if (!api?.agent?.list) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const all: CastAgentLite[] = await api.agent.list();
+        if (cancelled) return;
+        setCastAgents(all.filter(a => season.characterIds.includes(a.id)));
+      } catch (err) {
+        console.error('Failed to load cast for primary-contact picker:', err);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [season.characterIds.join(',')]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const agentLabel = (a: CastAgentLite) => a.canonName || a.name || a.id;
+
+  // The effective primary contact: explicit selection, else the first cast agent
+  // (the convener is normally first) so the dropdown reflects the backend default.
+  const effectiveContactId = season.primaryContactAgentId
+    || (castAgents.length > 0 ? castAgents[0].id : '');
+
+  const setContact = async (agentId: string) => {
+    if (!api?.season?.meeting?.setPrimaryContact || savingContact) return;
+    setSavingContact(true);
+    try {
+      await api.season.meeting.setPrimaryContact(season.id, agentId);
+      // The `season:updated` broadcast re-renders with the new contact.
+    } catch (err) {
+      console.error('Failed to set primary contact:', err);
+    } finally {
+      setSavingContact(false);
+    }
+  };
+
+  const absorb = async () => {
+    if (!api?.season?.meeting?.absorb || absorbing) return;
+    const text = transcript.trim();
+    if (!text) return;
+    setAbsorbing(true);
+    setResult(null);
+    try {
+      const res = await api.season.meeting.absorb(season.id, {
+        transcript: text,
+        ceremonyId: ceremonyId || undefined,
+      });
+      setResult(res);
+      if (res?.ok) {
+        // Clear the textarea on success; keep the panel open to show the result.
+        setTranscript('');
+        setCeremonyId('');
+      }
+    } catch (err) {
+      console.error('Failed to absorb transcript:', err);
+      setResult({ ok: false, error: 'Failed to absorb the transcript.' });
+    } finally {
+      setAbsorbing(false);
+    }
+  };
+
+  const resolve = async (followUpId: string) => {
+    if (!api?.season?.meeting?.resolveFollowUp || resolvingId) return;
+    setResolvingId(followUpId);
+    try {
+      await api.season.meeting.resolveFollowUp(season.id, followUpId);
+    } catch (err) {
+      console.error('Failed to resolve follow-up:', err);
+    } finally {
+      setResolvingId(null);
+    }
+  };
+
+  return (
+    <div className="mt-3 border-t border-border pt-3">
+      <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
+        <h4 className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+          <FileText className="w-3.5 h-3.5 text-muted-foreground" />
+          Meeting follow-ups
+        </h4>
+        {!formOpen && (
+          <button
+            type="button"
+            onClick={() => { setFormOpen(true); setResult(null); }}
+            className="flex items-center gap-1 px-2 py-1 text-[11px] font-medium bg-secondary text-foreground rounded-md hover:bg-secondary/70 transition-colors border border-border"
+          >
+            <Plus className="w-3 h-3" /> Absorb a transcript
+          </button>
+        )}
+      </div>
+
+      {/* Primary-contact selector (defaults to the convener). */}
+      <label className="flex items-center gap-2 mb-2 flex-wrap">
+        <span className="text-[11px] text-muted-foreground flex items-center gap-1 shrink-0">
+          <UserCheck className="w-3.5 h-3.5" />
+          Primary contact (attends + summarizes meetings)
+        </span>
+        <select
+          value={effectiveContactId}
+          onChange={e => setContact(e.target.value)}
+          disabled={savingContact || castAgents.length === 0}
+          className="text-[11px] px-2 py-1 rounded-md bg-background border border-border text-foreground focus:outline-none focus:border-primary/50 disabled:opacity-50"
+        >
+          {castAgents.length === 0 && <option value="">No cast agents</option>}
+          {castAgents.map(a => (
+            <option key={a.id} value={a.id}>{agentLabel(a)}</option>
+          ))}
+        </select>
+        {savingContact && <Loader2 className="w-3.5 h-3.5 animate-spin text-muted-foreground" />}
+      </label>
+
+      {/* Transcript intake form. */}
+      {formOpen && (
+        <div className="mt-1 mb-2 p-2.5 rounded-lg border border-border bg-background space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-semibold text-foreground">Absorb a meeting transcript</span>
+            <button
+              type="button"
+              onClick={() => { setFormOpen(false); setResult(null); }}
+              className="p-0.5 rounded text-muted-foreground hover:text-foreground"
+              title="Cancel"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+
+          {ceremonies.length > 0 && (
+            <label className="flex flex-col gap-0.5">
+              <span className="text-[10px] text-muted-foreground">Ceremony (optional)</span>
+              <select
+                value={ceremonyId}
+                onChange={e => setCeremonyId(e.target.value)}
+                className="text-[11px] px-2 py-1 rounded-md bg-background border border-border text-foreground focus:outline-none focus:border-primary/50"
+              >
+                <option value="">Not tied to a ceremony</option>
+                {ceremonies.map(c => (
+                  <option key={c.id} value={c.id}>{c.title}</option>
+                ))}
+              </select>
+            </label>
+          )}
+
+          <label className="flex flex-col gap-0.5">
+            <span className="text-[10px] text-muted-foreground">Transcript</span>
+            <textarea
+              value={transcript}
+              onChange={e => setTranscript(e.target.value)}
+              rows={6}
+              placeholder="Paste the meeting transcript here…"
+              className="text-[11px] px-2 py-1.5 rounded-md bg-background border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/50 resize-y font-mono"
+            />
+          </label>
+
+          <div className="flex items-center gap-2 pt-0.5">
+            <button
+              type="button"
+              onClick={absorb}
+              disabled={absorbing || !transcript.trim()}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-50"
+            >
+              {absorbing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ClipboardCheck className="w-3.5 h-3.5" />}
+              {absorbing ? 'Absorbing…' : 'Absorb'}
+            </button>
+            <button
+              type="button"
+              onClick={() => { setFormOpen(false); setResult(null); }}
+              className="px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
+            >
+              Cancel
+            </button>
+          </div>
+
+          {/* Absorb result (summary + counts, or an error). */}
+          {result && (
+            result.ok ? (
+              <div className="mt-1 p-2 rounded-md border border-green-500/30 bg-green-500/5 space-y-1">
+                <p className="text-[11px] text-foreground flex items-center gap-1.5">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-green-500 shrink-0" />
+                  {result.decisions ?? 0} decision{result.decisions === 1 ? '' : 's'} ·{' '}
+                  {result.actionItems ?? 0} action item{result.actionItems === 1 ? '' : 's'} (added to the board) ·{' '}
+                  {result.questions ?? 0} follow-up question{result.questions === 1 ? '' : 's'}
+                </p>
+                {result.summary && (
+                  <p className="text-[11px] text-muted-foreground whitespace-pre-wrap">{result.summary}</p>
+                )}
+              </div>
+            ) : (
+              <p className="mt-1 p-2 rounded-md border border-red-500/30 bg-red-500/5 text-[11px] text-red-500 flex items-center gap-1.5">
+                <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                {result.error || 'Could not absorb the transcript.'}
+              </p>
+            )
+          )}
+        </div>
+      )}
+
+      {/* Open follow-up questions surfaced back to the user. */}
+      {openFollowUps.length > 0 ? (
+        <div className="space-y-1.5">
+          {openFollowUps.map(f => (
+            <div
+              key={f.id}
+              className="flex items-start gap-2 px-2.5 py-2 rounded-lg border border-primary/30 bg-secondary/30"
+            >
+              <MessageCircleQuestion className="w-3.5 h-3.5 text-primary shrink-0 mt-0.5" />
+              <p className="text-[11px] text-foreground flex-1 min-w-0">{f.question}</p>
+              <button
+                type="button"
+                onClick={() => resolve(f.id)}
+                disabled={resolvingId !== null}
+                className="flex items-center gap-1 px-2 py-0.5 text-[10px] font-medium text-muted-foreground hover:text-foreground border border-border rounded-md hover:bg-secondary transition-colors disabled:opacity-50 shrink-0"
+              >
+                {resolvingId === f.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <CheckCircle2 className="w-3 h-3" />}
+                Resolve
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : (
+        !formOpen && (
+          <p className="text-[11px] text-muted-foreground">
+            {lastAbsorption
+              ? 'No open follow-ups — all discussion items are resolved.'
+              : 'No meeting absorbed yet. Use "Absorb a transcript" to summarize a meeting into decisions, action-item tickets, and follow-up questions.'}
+          </p>
+        )
+      )}
+
+      <p className="mt-2 text-[10px] text-muted-foreground">
+        The primary contact absorbs a meeting transcript you provide. Live auto-attendance
+        (joining the call) is a future capability. The summary + decisions also appear in the
+        Conversation tab.
+      </p>
+    </div>
+  );
+}
+
+/* ─── Context panel (brownfield ingestion) ───────────────────── */
+
+/**
+ * Surfaces the brownfield context-bootstrap state on the control board:
+ *   • searching/reviewing → a live status banner explaining what's happening.
+ *   • ready → a preview of the consolidated context.md plus an "Open" action.
+ *   • greenfield/unset → renders nothing (no panel for new projects).
+ */
+function ContextPanel({ season }: { season: Season }) {
+  const [preview, setPreview] = useState<string | null>(null);
+  const [loadingPreview, setLoadingPreview] = useState(false);
+
+  const api = typeof window !== 'undefined'
+    ? (window as unknown as { electronAPI: any }).electronAPI
+    : null;
+
+  const status = season.contextStatus;
+  const meta = contextStatusMeta(status);
+
+  // Load a preview of context.md once it's ready and we have a path.
+  useEffect(() => {
+    let cancelled = false;
+    if (status !== 'ready' || !season.contextPath || !api?.shell?.readFileAbs) {
+      setPreview(null);
+      return;
+    }
+    setLoadingPreview(true);
+    (async () => {
+      try {
+        const res = await api.shell.readFileAbs({ absolutePath: season.contextPath, maxLines: 120 });
+        if (cancelled) return;
+        setPreview(res?.success ? (res.output || '').trim() : null);
+      } catch {
+        if (!cancelled) setPreview(null);
+      } finally {
+        if (!cancelled) setLoadingPreview(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [status, season.contextPath]);
+
+  // Nothing to show for greenfield / unset seasons.
+  if (!meta) return null;
+
+  const openContext = () => {
+    if (season.contextPath && api?.shell?.openPath) {
+      api.shell.openPath({ path: season.contextPath });
+    }
+  };
+
+  return (
+    <div className="bg-card border border-border rounded-lg p-4">
+      <div className="flex items-center justify-between gap-2 mb-2">
+        <div className="flex items-center gap-2 min-w-0">
+          <FileText className="w-4 h-4 text-muted-foreground shrink-0" />
+          <h3 className="text-sm font-semibold text-foreground">Context</h3>
+          <span className={`inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full border ${meta.className}`}>
+            {status === 'searching' || status === 'reviewing' ? (
+              <Loader2 className="w-3 h-3 shrink-0 animate-spin" />
+            ) : (
+              <meta.Icon className="w-3 h-3 shrink-0" />
+            )}
+            <span className="font-medium">{meta.label}</span>
+          </span>
+        </div>
+        {status === 'ready' && season.contextPath && (
+          <button
+            onClick={openContext}
+            className="text-xs text-primary hover:underline shrink-0"
+            title={season.contextPath}
+          >
+            Open context.md
+          </button>
+        )}
+      </div>
+
+      {status === 'searching' && (
+        <p className="text-xs text-muted-foreground">
+          Searching repo docs, the knowledge base, and prior seasons for existing context on this project…
+        </p>
+      )}
+
+      {status === 'reviewing' && (
+        <p className="text-xs text-muted-foreground">
+          No prior context was found, so an onboarding code review is mapping the architecture and current
+          state. It writes <span className="font-mono">docs/CODEBASE_MAP.md</span> and a season{' '}
+          <span className="font-mono">context.md</span>; this panel updates to a preview when it&apos;s ready.
+        </p>
+      )}
+
+      {status === 'failed' && (
+        <p className="text-xs text-muted-foreground">
+          The context bootstrap could not complete. The team can still proceed by exploring the repository
+          directly. Check the cast output below for details.
+        </p>
+      )}
+
+      {status === 'ready' && (
+        <>
+          {loadingPreview ? (
+            <p className="text-xs text-muted-foreground">Loading context preview…</p>
+          ) : preview ? (
+            <pre className="mt-1 text-[11px] leading-relaxed font-mono bg-background/60 border border-border rounded p-3 max-h-60 overflow-y-auto whitespace-pre-wrap text-muted-foreground">
+              {preview}
+            </pre>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              Context is ready{season.contextPath ? (
+                <> at <span className="font-mono">{season.contextPath}</span></>
+              ) : null}.
+            </p>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+/* ─── On-demand / ad-hoc team expansion (#19) ────────────────── */
+
+/**
+ * Surfaces pending expansion requests (a running agent asked for a teammate the
+ * team lacks) with Approve/Decline, and a manual "Add a team member" form that
+ * casts + launches a new agent into the live season. Mirrors the DirectionCard
+ * surfacing pattern; the new agent appears in the Cast grid via the existing
+ * `agent:*` broadcasts and the `season:updated` rebroadcast.
+ */
+function ExpansionPanel({ season }: { season: Season }) {
+  const api = typeof window !== 'undefined'
+    ? (window as unknown as { electronAPI: any }).electronAPI
+    : null;
+
+  const pending = (season.expansionRequests ?? []).filter(r => r.status === 'pending');
+
+  const [showForm, setShowForm] = useState(false);
+  const [archetypes, setArchetypes] = useState<ArchetypeOption[]>([]);
+  const [selectedArchetype, setSelectedArchetype] = useState('');
+  const [characterName, setCharacterName] = useState('');
+  const [reason, setReason] = useState('');
+  const [busyId, setBusyId] = useState<string | null>(null); // request id being resolved
+  const [adding, setAdding] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Human-owned archetypes (#22a) can't be cast — filter them out of the picker.
+  const humanOwned = new Set((season.humanTeam?.seats ?? []).map(s => s.archetypeId));
+
+  // Lazy-load the archetype catalog the first time the form opens.
+  useEffect(() => {
+    if (!showForm || archetypes.length > 0 || !api?.season?.archetypes?.list) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await api.season.archetypes.list();
+        if (!cancelled && res?.archetypes) setArchetypes(res.archetypes);
+      } catch (err) {
+        console.error('Failed to load archetypes:', err);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [showForm, api?.season?.archetypes?.list]);
+
+  const isArchived = season.status === 'archived';
+
+  const approve = async (id: string) => {
+    if (!api?.season?.expansion?.approve || busyId) return;
+    setBusyId(id);
+    setError(null);
+    try {
+      const res = await api.season.expansion.approve(season.id, id);
+      if (!res?.ok) setError(res?.error || 'Failed to approve the request.');
+    } catch (err) {
+      console.error('Failed to approve expansion:', err);
+      setError(String(err));
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const decline = async (id: string) => {
+    if (!api?.season?.expansion?.decline || busyId) return;
+    setBusyId(id);
+    setError(null);
+    try {
+      await api.season.expansion.decline(season.id, id);
+    } catch (err) {
+      console.error('Failed to decline expansion:', err);
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const submitAdd = async () => {
+    if (!api?.season?.expansion?.add || adding) return;
+    const archetype = selectedArchetype.trim();
+    if (!archetype) return;
+    setAdding(true);
+    setError(null);
+    try {
+      const res = await api.season.expansion.add(season.id, {
+        archetype,
+        character: characterName.trim() || undefined,
+        reason: reason.trim() || undefined,
+      });
+      if (res?.ok) {
+        setShowForm(false);
+        setSelectedArchetype('');
+        setCharacterName('');
+        setReason('');
+      } else {
+        setError(res?.error || 'Failed to add the team member.');
+      }
+    } catch (err) {
+      console.error('Failed to add team member:', err);
+      setError(String(err));
+    } finally {
+      setAdding(false);
+    }
+  };
+
+  // Nothing to show when there are no pending requests AND the form is closed —
+  // but always keep the "Add a team member" affordance available (active seasons).
+  return (
+    <div className="space-y-3">
+      {/* Pending requests from running agents. */}
+      {pending.length > 0 && (
+        <div className="bg-card border border-primary/40 rounded-lg p-4 space-y-3">
+          <div className="flex items-center gap-2">
+            <UserPlus className="w-4 h-4 text-primary shrink-0" />
+            <h3 className="text-sm font-semibold text-foreground">
+              Expansion request{pending.length === 1 ? '' : 's'}
+            </h3>
+          </div>
+          {pending.map(req => (
+            <div key={req.id} className="rounded-lg border border-border bg-secondary/40 p-3">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-foreground">
+                    {req.role}
+                    {req.archetype && (
+                      <span className="ml-2 text-[10px] uppercase font-medium px-1.5 py-0.5 rounded bg-secondary border border-border text-muted-foreground">
+                        {req.archetype}
+                      </span>
+                    )}
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-1">{req.reason}</p>
+                  {req.requestedByName && (
+                    <p className="text-[11px] text-muted-foreground/70 mt-1">
+                      Requested by {req.requestedByName}
+                    </p>
+                  )}
+                </div>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => approve(req.id)}
+                    disabled={busyId === req.id || isArchived || !req.archetype}
+                    title={!req.archetype ? 'This request did not specify an archetype to cast' : undefined}
+                    className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-50"
+                  >
+                    {busyId === req.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                    Approve
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => decline(req.id)}
+                    disabled={busyId === req.id}
+                    className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium bg-secondary text-muted-foreground rounded-lg hover:bg-secondary/80 transition-colors disabled:opacity-50"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                    Decline
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Manual add. */}
+      {!isArchived && (
+        <div className="bg-card border border-border rounded-lg p-3">
+          {!showForm ? (
+            <button
+              type="button"
+              onClick={() => { setShowForm(true); setError(null); }}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-secondary text-foreground rounded-lg hover:bg-secondary/80 transition-colors"
+            >
+              <UserPlus className="w-3.5 h-3.5" />
+              Add a team member
+            </button>
+          ) : (
+            <div className="space-y-2.5">
+              <div className="flex items-center gap-2">
+                <UserPlus className="w-4 h-4 text-primary shrink-0" />
+                <h3 className="text-sm font-semibold text-foreground">Add a team member</h3>
+              </div>
+              <div>
+                <label className="block text-xs text-muted-foreground mb-1">Role / archetype</label>
+                <select
+                  value={selectedArchetype}
+                  onChange={e => setSelectedArchetype(e.target.value)}
+                  className="w-full px-3 py-2 text-sm rounded-lg bg-background border border-border text-foreground focus:outline-none focus:border-primary/50"
+                >
+                  <option value="">Select an archetype…</option>
+                  {archetypes
+                    .filter(a => !humanOwned.has(a.archetype))
+                    .map(a => (
+                      <option key={a.archetype} value={a.archetype}>{a.label}</option>
+                    ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs text-muted-foreground mb-1">Character name (optional)</label>
+                <input
+                  type="text"
+                  value={characterName}
+                  onChange={e => setCharacterName(e.target.value)}
+                  placeholder="Defaults to the archetype's character"
+                  className="w-full px-3 py-2 text-sm rounded-lg bg-background border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/50"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-muted-foreground mb-1">Reason (optional)</label>
+                <input
+                  type="text"
+                  value={reason}
+                  onChange={e => setReason(e.target.value)}
+                  placeholder="Why this teammate is needed"
+                  className="w-full px-3 py-2 text-sm rounded-lg bg-background border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/50"
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={submitAdd}
+                  disabled={adding || !selectedArchetype.trim()}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-50"
+                >
+                  {adding ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <UserPlus className="w-3.5 h-3.5" />}
+                  Add to team
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setShowForm(false); setError(null); }}
+                  disabled={adding}
+                  className="px-3 py-1.5 text-xs font-medium bg-secondary text-muted-foreground rounded-lg hover:bg-secondary/80 transition-colors disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {error && (
+        <div className="flex items-start gap-2 text-xs text-red-500 bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-2">
+          <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-px" />
+          <span>{error}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CastTab({ season }: { season: Season }) {
+  const [agents, setAgents] = useState<Record<string, CastAgent>>({});
+  // Per-agent rolling output buffer (live PTY stream).
+  const outputs = useRef<Record<string, string>>({});
+  const [, forceRender] = useState(0);
+
+  const api = typeof window !== 'undefined'
+    ? (window as unknown as { electronAPI: any }).electronAPI
+    : null;
+
+  useEffect(() => {
+    if (!api?.agent) return;
+    let cancelled = false;
+
+    // Load the cast agents (characterIds are now real agent ids).
+    (async () => {
+      try {
+        const all: CastAgent[] = await api.agent.list();
+        if (cancelled) return;
+        const map: Record<string, CastAgent> = {};
+        for (const a of all) {
+          if (season.characterIds.includes(a.id)) {
+            map[a.id] = a;
+            outputs.current[a.id] = (a.output || []).join('');
+          }
+        }
+        setAgents(map);
+      } catch (err) {
+        console.error('Failed to load cast agents:', err);
+      }
+    })();
+
+    // Subscribe to the already-firing PTY broadcasts (no new IPC).
+    const unsubOutput = api.agent.onOutput((event: { agentId: string; data: string }) => {
+      if (!season.characterIds.includes(event.agentId)) return;
+      const prev = outputs.current[event.agentId] || '';
+      // Keep a bounded tail so the DOM stays light.
+      outputs.current[event.agentId] = (prev + event.data).slice(-4000);
+      forceRender(n => n + 1);
+    });
+
+    const unsubStatus = api.agent.onStatus((event: { agentId: string; status: string }) => {
+      if (!season.characterIds.includes(event.agentId)) return;
+      setAgents(prev => {
+        const existing = prev[event.agentId];
+        if (!existing) return prev;
+        return { ...prev, [event.agentId]: { ...existing, status: event.status } };
+      });
+    });
+
+    return () => {
+      cancelled = true;
+      unsubOutput?.();
+      unsubStatus?.();
+    };
+  }, [season.characterIds.join(',')]);
+
+  if (season.characterIds.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center h-48 text-muted-foreground">
+        <Users className="w-8 h-8 mb-2 opacity-50" />
+        <p className="text-sm">No cast members in this season</p>
+        <p className="text-xs mt-1">The team is auto-composed and cast when the season is spawned</p>
+      </div>
+    );
+  }
+
+  const statusColor = (status: string) => {
+    switch (status) {
+      case 'running': return 'bg-green-500';
+      case 'waiting': return 'bg-yellow-500';
+      case 'completed': return 'bg-blue-500';
+      case 'error': return 'bg-red-500';
+      default: return 'bg-muted-foreground/40';
+    }
+  };
+
+  return (
+    <div className="space-y-3">
+      {/* Brownfield context bootstrap status + context.md preview. */}
+      <ContextPanel season={season} />
+
+      {/* On-demand expansion (#19): pending requests + manual add-a-teammate. */}
+      <ExpansionPanel season={season} />
+
+      {/* Cast header: surface the season's source-control + Jira linkage. */}
+      {(season.sourceControl || season.jiraProjectKey) && (
+        <div className="flex items-center flex-wrap gap-2 text-xs text-muted-foreground bg-card border border-border rounded-lg px-3 py-2">
+          {season.sourceControl && (() => {
+            const meta = sourceControlMeta(season.sourceControl);
+            const location = sourceControlLocation(season.sourceControl);
+            return (
+              <span className="inline-flex items-center gap-1.5 min-w-0" title={location || meta.label}>
+                <meta.Icon className="w-3.5 h-3.5 shrink-0" />
+                <span className="font-medium text-foreground">{meta.label}</span>
+                {location && (
+                  <span className="font-mono truncate max-w-[18rem]">{location}</span>
+                )}
+              </span>
+            );
+          })()}
+          {season.sourceControl && season.jiraProjectKey && <span className="text-muted-foreground/40">·</span>}
+          {season.jiraProjectKey && (
+            <span className="inline-flex items-center gap-1.5">
+              <KanbanSquare className="w-3.5 h-3.5 shrink-0" />
+              <span className="font-medium text-foreground">JIRA {season.jiraProjectKey.toUpperCase()}</span>
+            </span>
+          )}
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+      {season.characterIds.map(charId => {
+        const agent = agents[charId];
+        const label = agent?.canonName || agent?.name || charId;
+        const tail = stripAnsi(outputs.current[charId] || '').trim();
+        return (
+          <div
+            key={charId}
+            className="bg-card border border-border rounded-lg p-4 hover:border-primary/30 transition-colors flex flex-col"
+          >
+            <div className="flex items-center gap-3 mb-2">
+              <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
+                <Users className="w-4 h-4 text-primary" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium text-foreground truncate">{label}</p>
+                <p className="text-xs text-muted-foreground truncate">
+                  {agent?.archetypeId || 'Character'}
+                </p>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className={`w-2 h-2 rounded-full ${statusColor(agent?.status || 'idle')}`} />
+                <span className="text-xs text-muted-foreground capitalize">{agent?.status || 'idle'}</span>
+              </div>
+            </div>
+            {/* Model + posture chips */}
+            <div className="flex items-center flex-wrap gap-1.5 mb-2">
+              {agent?.model && (
+                <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-secondary text-muted-foreground border border-border">
+                  {agent.model}
+                </span>
+              )}
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-secondary text-muted-foreground border border-border">
+                {postureLabel(agent?.permissionMode)}
+              </span>
+            </div>
+            <pre className="text-[10px] leading-relaxed font-mono bg-background/60 border border-border rounded p-2 h-32 overflow-y-auto whitespace-pre-wrap text-muted-foreground">
+              {tail || 'Waiting for output…'}
+            </pre>
+          </div>
+        );
+      })}
+      </div>
+    </div>
+  );
+}
+
+/* ─── Conversation Log Tab — see ./ConversationLogTab.tsx (17b) ─── */
+
+/* ─── Tickets Tab (season-scoped kanban board) ───────────────── */
+
+function TicketsTab({ season }: { season: Season }) {
+  return (
+    <div className="flex flex-col h-full min-h-0">
+      {/* Linked-Jira chip (preserved from the prior placeholder). */}
+      {season.jiraProjectKey && (
+        <div className="mb-2 shrink-0">
+          <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-secondary border border-border text-muted-foreground">
+            <KanbanSquare className="w-3 h-3 shrink-0" />
+            <span>Linked to JIRA <span className="font-mono text-foreground">{season.jiraProjectKey.toUpperCase()}</span></span>
+          </span>
+        </div>
+      )}
+      {/* Season-scoped, lock the board to this season's tickets. Pass the linked
+          Jira project key (17d) so the board can offer a "Sync Jira" action. */}
+      <div className="flex-1 min-h-0">
+        <KanbanBoard seasonId={season.id} lockScope jiraProjectKey={season.jiraProjectKey} />
+      </div>
     </div>
   );
 }
@@ -257,6 +2330,46 @@ function SettingsTab({ season }: { season: Season }) {
           <div className="flex justify-between">
             <span className="text-muted-foreground">Theme</span>
             <span className="text-foreground">{season.theme}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-muted-foreground">Intake</span>
+            <span className="text-foreground capitalize">
+              {season.intake === 'brownfield' ? 'Existing project (in flight)' : 'New project'}
+            </span>
+          </div>
+          {contextStatusMeta(season.contextStatus) && (
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Context</span>
+              <span className="text-foreground">{contextStatusMeta(season.contextStatus)!.label}</span>
+            </div>
+          )}
+          <div className="flex justify-between">
+            <span className="text-muted-foreground">Source control</span>
+            <span className="text-foreground flex items-center gap-1.5 min-w-0">
+              {(() => {
+                const meta = sourceControlMeta(season.sourceControl);
+                return <meta.Icon className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />;
+              })()}
+              <span>{sourceControlMeta(season.sourceControl).label}</span>
+              {sourceControlLocation(season.sourceControl) && (
+                <span
+                  className="font-mono text-xs text-muted-foreground truncate max-w-[14rem]"
+                  title={sourceControlLocation(season.sourceControl)}
+                >
+                  {sourceControlLocation(season.sourceControl)}
+                </span>
+              )}
+            </span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-muted-foreground">Jira project</span>
+            <span className="text-foreground">
+              {season.jiraProjectKey ? (
+                <span className="font-mono">{season.jiraProjectKey.toUpperCase()}</span>
+              ) : (
+                <span className="text-muted-foreground">Not linked</span>
+              )}
+            </span>
           </div>
           <div className="flex justify-between">
             <span className="text-muted-foreground">Workspace</span>

@@ -65,6 +65,19 @@ export function assignConvener(seasonId: string): string | null {
 }
 
 /**
+ * Bind a season's convener to the REAL cast agentId.
+ *
+ * `assignConvener` initially resolves the convener to a character *slug*. Once
+ * the season has cast that character into a live agent, the caller (spawnSeason)
+ * re-points the map at the agent's actual id so downstream lookups
+ * (getConvener, isConvener, getConvenerSeason) reference the running agent
+ * rather than the bare slug.
+ */
+export function setConvenerAgentId(seasonId: string, agentId: string): void {
+  convenerMap.set(seasonId, agentId);
+}
+
+/**
  * Get the convener agent ID for a season.
  */
 export function getConvener(seasonId: string): string | null {

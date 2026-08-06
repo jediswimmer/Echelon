@@ -9,13 +9,13 @@ role_summary: |
   gap between ML experimentation and reliable production serving.
 
 primary_responsibilities:
-  - Deploy ML models to production serving infrastructure
-  - Build and maintain model monitoring and alerting
-  - Manage A/B testing infrastructure for model rollouts
-  - Operate and scale feature store infrastructure
-  - Implement model versioning and rollback procedures
-  - Automate model retraining and promotion pipelines
-  - Track model performance drift and data quality
+  - "Deploy ML models to production serving infrastructure"
+  - "Build and maintain model monitoring and alerting"
+  - "Manage A/B testing infrastructure for model rollouts"
+  - "Operate and scale feature store infrastructure"
+  - "Implement model versioning and rollback procedures"
+  - "Automate model retraining and promotion pipelines"
+  - "Track model performance drift and data quality"
 
 inputs:
   - type: "source_code"

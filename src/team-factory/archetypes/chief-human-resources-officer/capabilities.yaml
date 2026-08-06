@@ -1,0 +1,27 @@
+required_capabilities:
+  - delegation:write              # tasks the people-hr department (HR business partner, recruiter) via delegate_task
+  - knowledge-retrieval:read      # reads prior role definitions, workforce plans, conflict history, and retros before deciding
+  - knowledge-capture:write       # persists workforce plans, role definitions, onboarding decisions, and mediation verdicts
+  - monitoring:read               # reads agent-health signals (load, bounce rate, idle/overrun, model-window strain)
+  - hr:read                       # reads agent records: role-fit, performance signals, onboarding state, conflict history
+  - hr:write                      # writes role definitions, onboarding/offboarding records, and mediation outcomes (NEW scope — flagged)
+
+forbidden_capabilities:
+  - source-control:read           # the CHRO does not read or touch the codebase
+  - source-control:write          # the CHRO does not write code or commit
+  - source-control:admin          # merge authority belongs to the user-handler, not the CHRO
+  - deployment:read               # the CHRO directs people-ops; platform-sre operates and observes
+  - deployment:write              # the CHRO never deploys
+  - quality-gate:override         # the CHRO owns workforce health, not engineering review gates
+  - counselor-invocation:execute  # only the CEO / merge authority convenes a binding Counselor; the CHRO escalates to the CEO
+  - capability-grant              # granting new scopes is a control-plane / orchestrator function, logged to audit_log
+  - policy:admin                  # the guardrail policy is the CEO's stewardship; the CHRO owns culture/comms norms, not the policy itself
+
+# Note: hr:read / hr:write are NEW capability scopes flagged for the capability track.
+# They are introduced here because workforce records, role definitions, and agent-health
+# data are a distinct least-privilege surface that should not be approximated with
+# knowledge-capture:write + delegation (which is what the roster's key_capabilities did).
+# hr:write is bounded to people-ops records ONLY: it grants no source-control, deployment,
+# or capability-grant power, and it never reaches CSP-customer or PII data (that surface is
+# the privacy-officer's / General Counsel's, behind on-device handling). This bound is
+# enforced as a guardrail (see agent.config.yaml), not as a finer scope verb.

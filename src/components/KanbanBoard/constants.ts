@@ -1,4 +1,4 @@
-import type { KanbanColumn } from '@/types/kanban';
+import type { KanbanColumn, KanbanIssueType } from '@/types/kanban';
 
 export const COLUMN_CONFIG: Record<KanbanColumn, {
   title: string;
@@ -64,4 +64,36 @@ export function getLabelColor(label: string) {
   // Generate consistent color based on label string
   const hash = label.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
   return LABEL_COLORS[hash % LABEL_COLORS.length];
+}
+
+/** Badge styling for the Jira-style Epic → Story → Task hierarchy. */
+export const ISSUE_TYPE_CONFIG: Record<KanbanIssueType, {
+  label: string;
+  bg: string;
+  text: string;
+  border: string;
+}> = {
+  epic: {
+    label: 'Epic',
+    bg: 'bg-purple-500/10',
+    text: 'text-purple-500',
+    border: 'border-purple-500/30',
+  },
+  story: {
+    label: 'Story',
+    bg: 'bg-green-500/10',
+    text: 'text-green-500',
+    border: 'border-green-500/30',
+  },
+  task: {
+    label: 'Task',
+    bg: 'bg-blue-500/10',
+    text: 'text-blue-500',
+    border: 'border-blue-500/30',
+  },
+};
+
+/** Resolve a task's issue type, defaulting missing values to 'task'. */
+export function getIssueType(issueType?: KanbanIssueType): KanbanIssueType {
+  return issueType ?? 'task';
 }

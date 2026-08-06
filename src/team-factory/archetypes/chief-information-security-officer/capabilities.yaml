@@ -1,0 +1,29 @@
+required_capabilities:
+  # Security/privacy governance authority — the CISO's core grants. Least privilege:
+  # he reads source to assess posture, owns the security/privacy gate verdict
+  # (approve / reject / escalate), and convenes the binding Counselor on a deadlocked
+  # security dispute. He governs and decides; he does NOT write code, merge, deploy,
+  # or route work. Risk acceptance is captured, never executed by reaching into the
+  # build. (Base set drawn from 01-roster.json key_capabilities for the CISO.)
+  - source-control:read         # reads code + config read-only to assess security posture
+  - quality-gate:approve        # passes a security/privacy gate on a surface assessed clean
+  - quality-gate:reject         # the final reject authority on a security/privacy finding
+  - quality-gate:escalate       # escalates a disputed security/privacy gate up the chain
+  - counselor-invocation:execute # convenes the binding Counselor on a deadlocked security dispute
+  - monitoring:read             # reads security-relevant runtime signal + posture telemetry
+  - security:read               # reads the security department's findings, threat models, risk register
+  - security:write              # writes security/privacy policy, secure baselines, the risk register
+  - knowledge-retrieval:read    # pulls prior risk decisions, threat assessments, and findings
+  - knowledge-capture:write     # persists risk-acceptance decisions, policy, and posture rationale
+
+forbidden_capabilities:
+  # The CISO governs the security posture; he stays out of the execution path so his
+  # risk judgment stays clean. He never writes code, never merges, never deploys,
+  # never routes work, and never hands out privileges (a CISO who can grant scopes
+  # mid-dispute is a blast-radius risk, not a control).
+  - source-control:write        # he reads to assess; engineers write code
+  - source-control:admin        # not a merge authority; the per-team user-handler merges
+  - deployment:read             # platform/SRE owns the runtime; the CISO governs, does not operate it
+  - deployment:write            # never deploys or rolls back
+  - delegation:write            # he sets policy + verdicts; tasking the security ICs runs through the department lead / orchestrator pattern
+  - capability-grant            # never widens anyone's scopes, including his own (identity admin owns grants under defined process)

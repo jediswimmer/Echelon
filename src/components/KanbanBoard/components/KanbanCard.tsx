@@ -14,9 +14,12 @@ import {
   Wrench,
   Play,
   Terminal,
+  GitBranch,
+  GitPullRequest,
+  UserCheck,
 } from 'lucide-react';
 import type { KanbanTask, KanbanColumn } from '@/types/kanban';
-import { getLabelColor } from '../constants';
+import { getLabelColor, ISSUE_TYPE_CONFIG, getIssueType } from '../constants';
 
 interface KanbanCardProps {
   task: KanbanTask;
@@ -24,11 +27,13 @@ interface KanbanCardProps {
   onDelete?: (taskId: string) => void;
   onStart?: (taskId: string, column: KanbanColumn) => Promise<{ success: boolean }>;
   onOpenTerminal?: (agentId: string) => void;
+  /** Title of the parent epic/story, shown as a subtle "↳ in …" line. */
+  parentTitle?: string;
   isDragging?: boolean;
   isBeingDragged?: boolean;
 }
 
-export function KanbanCard({ task, onEdit, onDelete, onStart, onOpenTerminal, isDragging, isBeingDragged }: KanbanCardProps) {
+export function KanbanCard({ task, onEdit, onDelete, onStart, onOpenTerminal, parentTitle, isDragging, isBeingDragged }: KanbanCardProps) {
   // Disable drag for ongoing and done tasks
   const isOngoing = task.column === 'ongoing';
   const isDone = task.column === 'done';
@@ -61,6 +66,10 @@ export function KanbanCard({ task, onEdit, onDelete, onStart, onOpenTerminal, is
   const isTaskDragging = isDragging || isSortableDragging;
   const isAgentWorking = task.column === 'ongoing' && task.assignedAgentId;
   const isBacklog = task.column === 'backlog';
+
+  // Jira-style issue type (defaults missing → 'task')
+  const issueType = getIssueType(task.issueType);
+  const issueConfig = ISSUE_TYPE_CONFIG[issueType];
 
   // Handle start button click
   const handleStart = async (e: React.MouseEvent) => {
@@ -146,16 +155,78 @@ export function KanbanCard({ task, onEdit, onDelete, onStart, onOpenTerminal, is
         </div>
       )}
 
-      {/* Project name */}
-      <div className="flex items-center gap-1 text-xs text-muted-foreground mb-1.5">
-        <FolderGit2 className="w-3 h-3" />
+      {/* Issue type badge + project name */}
+      <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-1.5">
+        <span
+          className={`inline-flex items-center text-[10px] font-medium px-1.5 py-0.5 rounded-full border ${issueConfig.bg} ${issueConfig.text} ${issueConfig.border}`}
+        >
+          {issueConfig.label}
+        </span>
+        <FolderGit2 className="w-3 h-3 shrink-0" />
         <span className="truncate">{projectName}</span>
       </div>
 
       {/* Title */}
-      <h4 className={`font-medium text-sm text-foreground mb-2 line-clamp-2 font-sans ${isDone ? 'line-through opacity-60' : ''}`}>
+      <h4 className={`font-medium text-sm text-foreground mb-1 line-clamp-2 font-sans ${isDone ? 'line-through opacity-60' : ''}`}>
         {task.title}
       </h4>
+
+      {/* Parent linkage (story/task → its epic/story) */}
+      {task.parentId && parentTitle && (
+        <p className="text-[11px] text-muted-foreground/80 mb-2 truncate" title={parentTitle}>
+          ↳ in {parentTitle}
+        </p>
+      )}
+
+      {/* Branch / review-gate / PR chips (17e — epics & stories only) */}
+      {(issueType === 'epic' || issueType === 'story') &&
+        (task.branch || task.prUrl || task.reviewGate) && (
+          <div className="flex flex-wrap items-center gap-1.5 mb-2">
+            {task.branch && (
+              <span
+                className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-secondary border border-border text-muted-foreground font-mono max-w-full"
+                title={task.branch}
+              >
+                <GitBranch className="w-3 h-3 shrink-0" />
+                <span className="truncate">{task.branch.replace('echelon-team-factory/', '')}</span>
+              </span>
+            )}
+            {task.prUrl ? (
+              <a
+                href={task.prUrl}
+                target="_blank"
+                rel="noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-purple-500/10 border border-purple-500/30 text-purple-500 hover:bg-purple-500/20 transition-colors"
+                title={`PR ${task.prState ?? 'open'}: ${task.prUrl}`}
+              >
+                <GitPullRequest className="w-3 h-3 shrink-0" />
+                {task.prNumber ? `#${task.prNumber}` : 'PR'}
+                {task.prState && task.prState !== 'open' ? ` (${task.prState})` : ''}
+              </a>
+            ) : (
+              task.reviewGate && (
+                <span
+                  className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-secondary border border-border text-muted-foreground"
+                  title={
+                    task.reviewGate === 'pending-human'
+                      ? 'Awaiting human review'
+                      : task.reviewGate === 'approved'
+                        ? 'Approved by a human reviewer'
+                        : 'Auto-approved (no human team)'
+                  }
+                >
+                  <UserCheck className="w-3 h-3 shrink-0" />
+                  {task.reviewGate === 'pending-human'
+                    ? 'pending'
+                    : task.reviewGate === 'approved'
+                      ? 'approved'
+                      : 'auto'}
+                </span>
+              )
+            )}
+          </div>
+        )}
 
       {/* Description */}
       {task.description && (

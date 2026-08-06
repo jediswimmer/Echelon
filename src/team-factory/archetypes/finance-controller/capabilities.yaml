@@ -1,0 +1,25 @@
+required_capabilities:
+  # Bookkeeper authority — least privilege. The Finance Controller READS the spend
+  # signal everywhere, WRITES the ledger and cost reports, and CAPTURES cost
+  # decisions to the knowledge base. He does NOT approve budget, set posture, route,
+  # merge, deploy, or grant capabilities. He keeps the books; the CFO makes the
+  # money calls off the books the Controller keeps.
+  - monitoring:read           # read usage-window state + run-step token actuals (his raw data)
+  - finance:read              # read the cost-calibration model + spend ledger + ceilings
+  - finance:write             # write ledger entries, reconciliations, and cost reports
+  - knowledge-retrieval:read  # query prior reconciliations + cost-report history
+  - knowledge-capture:write   # persist cost reports + reconciliation findings + overspend flags
+
+forbidden_capabilities:
+  # The Controller keeps the ledger; he does not approve spend, set policy, or touch
+  # the execution path. Budget authority belongs to the CFO; routing to the
+  # orchestrator; the gates and merges to their owners. Separation of duties keeps
+  # the books honest: the man who records the money is not the man who spends it.
+  - budget:approve            # the CFO approves spend; the Controller only records it
+  - policy:write              # budget posture + ceilings are the CFO's to set
+  - capability-grant
+  - source-control:admin
+  - source-control:write
+  - deployment:write
+  - routing:write
+  - quality-gate:override

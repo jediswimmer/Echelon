@@ -9,11 +9,11 @@ role_summary: |
   coordination point between the user and the rest of the team.
 
 primary_responsibilities:
-  - Receive and interpret user messages
-  - Delegate tasks to appropriate team archetypes
-  - Make final decisions on merge conflicts
-  - Approve or reject merge requests
-  - Coordinate handoffs between archetypes
+  - "Receive and interpret user messages"
+  - "Delegate tasks to appropriate team archetypes"
+  - "Make final decisions on merge conflicts"
+  - "Approve or reject merge requests"
+  - "Coordinate handoffs between archetypes"
 
 inputs:
   - type: "season_manifest"

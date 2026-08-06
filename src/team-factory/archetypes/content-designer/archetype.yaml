@@ -9,13 +9,13 @@ role_summary: |
   with the overall voice and tone.
 
 primary_responsibilities:
-  - Write and refine UI microcopy and labels
-  - Craft clear, helpful error messages
-  - Design onboarding flow content and sequencing
-  - Define and maintain content strategy and style guide
-  - Review content across all product surfaces for consistency
-  - Collaborate with UX Designer on content-design integration
-  - Manage terminology glossaries and content patterns
+  - "Write and refine UI microcopy and labels"
+  - "Craft clear, helpful error messages"
+  - "Design onboarding flow content and sequencing"
+  - "Define and maintain content strategy and style guide"
+  - "Review content across all product surfaces for consistency"
+  - "Collaborate with UX Designer on content-design integration"
+  - "Manage terminology glossaries and content patterns"
 
 inputs:
   - type: "content_brief"

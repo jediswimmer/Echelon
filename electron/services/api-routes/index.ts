@@ -7,6 +7,7 @@ import { registerSlackRoutes } from './slack-routes';
 import { registerKanbanRoutes } from './kanban-routes';
 import { registerSchedulerRoutes } from './scheduler-routes';
 import { registerVaultRoutes } from './vault-routes';
+import { registerSeasonRoutes } from './season-routes';
 
 export function registerAllRoutes(app: RouteApp, ctx: RouteContext): void {
   registerHealthRoutes(app, ctx);
@@ -17,6 +18,7 @@ export function registerAllRoutes(app: RouteApp, ctx: RouteContext): void {
   registerKanbanRoutes(app, ctx);
   registerSchedulerRoutes(app, ctx);
   registerVaultRoutes(app, ctx);
+  registerSeasonRoutes(app, ctx);
 }
 
 export type { RouteApp, RouteContext, RouteRequest, SendJson, RouteHandler, RouteDefinition } from './types';

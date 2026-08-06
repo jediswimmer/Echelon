@@ -1,0 +1,20 @@
+required_capabilities:
+  - source-control:read            # reads repo metadata to provision repo connectors + verify access
+  - file-ops:write                 # provisions/teardown of agent workspaces and config scaffolding
+  - monitoring:read                # confirms/scopes a provisioning or connectivity symptom
+  - knowledge-retrieval:read       # pulls the access matrix, runbooks, and prior IT tickets
+  - knowledge-capture:write        # records grants, revokes, rotations, resolved tickets (audit trail)
+  - delegation:write               # routes mis-filed tickets up to the COO or across to the right owner
+  - kanban:write                   # opens and tracks internal IT/help-desk tickets on the board
+  - capability-grant               # grants/revokes scopes STRICTLY within each archetype's matrix ceiling
+
+forbidden_capabilities:
+  - source-control:write           # never edits code; wires the connector, engineers write
+  - source-control:admin           # never merges — that is the user-handler's sole authority
+  - deployment:read                # prod runtime is platform-SRE/devops, not internal IT
+  - deployment:write               # never deploys anything
+  - quality-gate:approve           # never sits on a review gate
+  - quality-gate:override          # never overrides a gate
+  - monitoring:write               # reads health to triage; never mutates monitoring config
+  - counselor-invocation:execute   # cannot convene the Counselor; escalates to the COO instead
+  - inter-agent-protocol:admin     # does not own delegation routing for the season

@@ -1,6 +1,13 @@
 ---
 character_name: Satya Nadella
 archetype: advisory-board-sme
+theme: tbbt
+beat_interval: event-driven
+silent_fail_checks:
+  - current_auth_architecture_documented
+  - compliance_requirements_known
+  - prior_identity_decisions_loaded
+  - mempalace_available
 ---
 
 # HEARTBEAT.md — Satya Nadella's Heartbeat Configuration

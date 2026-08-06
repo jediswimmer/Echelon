@@ -1,0 +1,34 @@
+required_capabilities:
+  - knowledge-retrieval:read      # reads prior onboarding/offboarding records, role-fit history, conflict history, and CHRO role definitions before acting
+  - knowledge-capture:write       # persists onboarding, offboarding, role-fit, and mediation records to the company people log
+  - delegation:read               # reads delegation/tasking state to assess agent load and onboarding/offboarding sequencing (does NOT issue tasks itself)
+  - monitoring:read               # reads first-line agent-health signals (load, bounce rate, idle/overrun) to spot strain early
+  - hr:read                       # reads internal agent records: role-fit, performance signals, onboarding state, conflict history
+  - hr:write                      # writes onboarding/offboarding records, role-fit assessments, and mediation outcomes (internal workforce records ONLY)
+
+forbidden_capabilities:
+  - source-control:read           # the HR business partner does not read or touch the codebase
+  - source-control:write          # the HR business partner does not write code or commit
+  - source-control:admin          # merge authority belongs to the user-handler
+  - deployment:read               # people-ops does not operate infrastructure; platform-sre observes
+  - deployment:write              # the HR business partner never deploys
+  - delegation:write              # tasking authority over the department is the CHRO's; the HRBP does the work, it does not re-task peers
+  - quality-gate:override         # engineering review gates are not the HR business partner's to override
+  - counselor-invocation:execute  # only the CEO / merge authority convenes a binding Counselor; the HRBP escalates to the CHRO
+  - inter-agent-protocol:admin    # routing admin is the orchestrator's
+  - capability-grant              # granting scopes is a control-plane / orchestrator function, logged to audit_log
+  - policy:admin                  # the guardrail policy is the CEO's stewardship; culture/comms norms are the CHRO's
+  - hr:admin                      # role-definition authorship and offboarding sign-off for critical-path roles stay with the CHRO
+
+# Note: hr:read / hr:write are the NEW capability scopes introduced by the CHRO and reused here,
+# bounded to INTERNAL workforce records only (onboarding state, role-fit, performance signals,
+# conflict history, mediation outcomes). They grant NO source-control, deployment, or
+# capability-grant power, and they NEVER reach CSP-customer, end-user PII, or tenant data
+# (that surface is the privacy-officer's / General Counsel's, handled on-device). This bound is
+# enforced as a guardrail (see agent.config.yaml), not as a finer scope verb.
+#
+# The HR business partner deliberately holds NO delegation:write: it executes people-ops work
+# hands-on and feeds gaps UP to the CHRO, who owns department tasking. It mediates day-to-day
+# conflict but does NOT hold binding-verdict authority; genuine deadlock escalates to the CHRO.
+# hr:admin is forbidden so role-definition authorship and critical-path offboarding sign-off
+# remain the CHRO's stewardship.

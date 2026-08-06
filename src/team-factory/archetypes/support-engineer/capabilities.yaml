@@ -1,0 +1,18 @@
+required_capabilities:
+  - knowledge-retrieval:read       # pull runbooks, known issues, prior resolutions
+  - monitoring:read                # confirm/scope a user-reported symptom against system signals
+  - knowledge-capture:write        # record new resolutions + recurring-issue signals
+  - delegation:write               # escalate clean tickets up to the customer-success-engineer
+  - kanban:write                   # open and track support tickets on the team board
+
+forbidden_capabilities:
+  - source-control:read
+  - source-control:write
+  - source-control:admin
+  - deployment:read
+  - deployment:write
+  - quality-gate:approve
+  - quality-gate:override
+  - monitoring:write
+  - counselor-invocation:execute
+  - capability-grant

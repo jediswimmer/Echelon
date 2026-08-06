@@ -9,13 +9,13 @@ role_summary: |
   customer requirements into viable technical solutions on the platform.
 
 primary_responsibilities:
-  - Design customer-facing technical architectures
-  - Create integration patterns and reference implementations
-  - Conduct technical discovery and requirements gathering
-  - Produce architecture decision records (ADRs) for customer solutions
-  - Validate proposed solutions against platform capabilities
-  - Support pre-sales with technical due diligence
-  - Document best practices and solution patterns
+  - "Design customer-facing technical architectures"
+  - "Create integration patterns and reference implementations"
+  - "Conduct technical discovery and requirements gathering"
+  - "Produce architecture decision records (ADRs) for customer solutions"
+  - "Validate proposed solutions against platform capabilities"
+  - "Support pre-sales with technical due diligence"
+  - "Document best practices and solution patterns"
 
 inputs:
   - type: "customer_requirements"

@@ -9,13 +9,13 @@ role_summary: |
   by people with disabilities.
 
 primary_responsibilities:
-  - Audit product surfaces for WCAG compliance
-  - Conduct screen reader and assistive technology testing
-  - Review markup and components for a11y best practices
-  - Maintain accessibility standards and checklists
-  - File and track accessibility defects
-  - Collaborate with UX Designer on accessible design patterns
-  - Generate accessibility compliance reports
+  - "Audit product surfaces for WCAG compliance"
+  - "Conduct screen reader and assistive technology testing"
+  - "Review markup and components for a11y best practices"
+  - "Maintain accessibility standards and checklists"
+  - "File and track accessibility defects"
+  - "Collaborate with UX Designer on accessible design patterns"
+  - "Generate accessibility compliance reports"
 
 inputs:
   - type: "ui_component"

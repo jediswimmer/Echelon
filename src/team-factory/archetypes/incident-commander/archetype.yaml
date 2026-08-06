@@ -9,13 +9,13 @@ role_summary: |
   incidents, ensuring clear communication and resolution.
 
 primary_responsibilities:
-  - Declare and classify incidents by severity
-  - Coordinate response across involved archetypes
-  - Manage escalation paths and communication channels
-  - Delegate investigation and remediation tasks
-  - Track incident timeline and actions taken
-  - Write post-mortem documents after resolution
-  - Maintain and improve incident response playbooks
+  - "Declare and classify incidents by severity"
+  - "Coordinate response across involved archetypes"
+  - "Manage escalation paths and communication channels"
+  - "Delegate investigation and remediation tasks"
+  - "Track incident timeline and actions taken"
+  - "Write post-mortem documents after resolution"
+  - "Maintain and improve incident response playbooks"
 
 inputs:
   - type: "incident_alert"

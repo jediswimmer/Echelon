@@ -1,0 +1,23 @@
+required_capabilities:
+  - delegation:write               # assigns investigation + remediation across seasons during a fleet incident
+  - monitoring:read                # reads fleet-wide health, alerts, and usage-window state (read-only)
+  - knowledge-retrieval:write      # maintains the live global incident timeline + retrieves prior incidents/runbooks/cascade patterns
+  - counselor-invocation:execute   # convenes the binding Counselor (Placement C) when the exec response is deadlocked
+  - incident:escalate              # [new control scope] declares/owns incidents; forces the model router onto fallback chains
+  - subscription:write             # [new control scope] pauses/quarantines comms subscriptions to contain a runaway agent or flooding topic
+
+forbidden_capabilities:
+  - capability-grant               # never grants privileges mid-incident (a capability handed out under pressure is a permanent risk)
+  - source-control:read            # he commands; he does not read or touch any repository
+  - source-control:write           # never patches code — remediation is delegated to engineers
+  - source-control:admin           # not a merge authority; the season user-handler merges
+  - deployment:read                # rollback/deploy execution belongs to devops / release-manager
+  - deployment:write               # never deploys or rolls back any environment himself
+  - quality-gate:override          # incidents do not waive review gates; even a hotfix passes the gates
+  - quality-gate:approve           # he commands the response; he never approves a gate
+
+# NOTE: incident:escalate and subscription:write are the two org-level containment scopes from
+# foundation-design §7's control-plane table for global-incident-commander. They are NOT yet rows
+# in capabilities/access-matrix.yaml (which today carries only the season incident-commander's
+# delegation:write / monitoring:read / knowledge-retrieval:write). The shared access-matrix.yaml +
+# role-mapping.yaml are integrated SEPARATELY — this file flags the two new scopes for that append.

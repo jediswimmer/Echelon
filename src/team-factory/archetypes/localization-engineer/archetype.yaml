@@ -9,13 +9,13 @@ role_summary: |
   validates locale-specific rendering through targeted test suites.
 
 primary_responsibilities:
-  - Implement i18n frameworks and extract translatable strings
-  - Manage translation files and coordinate with translation providers
-  - Configure locale-aware date, number, and currency formatting
-  - Build and maintain locale testing suites
-  - Validate right-to-left (RTL) layout support
-  - Ensure proper Unicode handling and character encoding
-  - Monitor translation coverage and flag missing keys
+  - "Implement i18n frameworks and extract translatable strings"
+  - "Manage translation files and coordinate with translation providers"
+  - "Configure locale-aware date, number, and currency formatting"
+  - "Build and maintain locale testing suites"
+  - "Validate right-to-left (RTL) layout support"
+  - "Ensure proper Unicode handling and character encoding"
+  - "Monitor translation coverage and flag missing keys"
 
 inputs:
   - type: "source_code"

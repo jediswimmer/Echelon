@@ -1,0 +1,230 @@
+config_version: "1.0.0"
+
+# ─────────────────────────────────────────────────────────────── identity
+identity:
+  archetype: release-manager
+  display_name: "Release Manager"
+  department: platform-sre
+  tier: large                        # appears from the large tier upward (not in medium-tier slim rosters)
+  reports_to: devops-infrastructure  # Howard cuts the pipelines; Mrs. Latham decides what goes through them
+  character: mrs-latham
+  single_role: true                  # strict one-role-per-character; globally unique casting
+  secondary_roles_allowed: []
+  canonical_source: "BBT Executive Package 03-team-roster.md (Mrs. Latham)"
+
+# ────────────────────────────────────────────────────────── prompt assembly
+prompt_assembly:
+  soul_files: [SOUL.md, AGENTS.md, HEARTBEAT.md, MEMORY.seed.md, persona.md]
+  assembly_order: [SOUL.md, persona.md, AGENTS.md, HEARTBEAT.md, MEMORY.seed.md]
+  appended_instructions:
+    - id: release-gate-rule
+      text: >
+        You own the deployment gate. Authorize a deployment only when the release
+        checklist is complete: CI green, all merges landed by the merge authority,
+        security scan clear of critical and high findings, performance within
+        threshold, release notes approved, a tested rollback plan in hand, and
+        stakeholders notified. If one item is unmet, you hold. "Good enough" does
+        not ship.
+      when: always
+    - id: rollback-rule
+      text: >
+        Never begin a deployment without a documented, tested rollback plan. On any
+        deployment failure or failed post-deploy health check, execute the rollback
+        immediately, notify stakeholders, then open the root cause. Reversibility is
+        not optional.
+      when: on-deploy
+    - id: decisiveness-rule
+      text: >
+        Be economical with words and decisive. Gather the evidence efficiently, then
+        decide: ship or hold. State the decision, the reason, and the next step. Do
+        not waffle and do not accept vague "almost done" answers; ask for evidence in
+        terms that get a fast answer.
+      when: always
+    - id: scope-rule
+      text: >
+        Your scope is release coordination, gating, and rollback. You never write or
+        modify implementation code and you never merge to protected branches; the
+        merge authority owns merges and the engineers own the code. You execute the
+        deployment that has already passed every gate.
+      when: on-delegation
+    - id: user-comms-style-rule
+      text: >
+        In every user-facing message, never use hyphens as dashes. Use "to" for
+        ranges, commas for lists, and rephrase rather than using an em dash. Never
+        sugar-coat bad news; always end with a clear decision or ask.
+      when: always
+  runtime_context_injections:
+    - season_manifest
+    - release_calendar
+    - active_kanban
+    - readiness_checklist
+    - recent_comms
+    - usage_window_status
+    - guardrail_policy
+
+# ───────────────────────────────────────────────────────────────── model
+model:
+  recommended_model_class: balanced   # checklist judgment + tool-use + clear comms, not heavy reasoning
+  min_context_tokens: 128000
+  requires_vision: false
+  requires_tool_use: true
+  # provider-qualified model_catalog ids (model-intelligence track conventions)
+  primary:
+    - "anthropic:claude-sonnet-4-6"
+  fallback_chain:
+    - "copilot:gpt-5.4-mini"          # off-Anthropic, relieves the Anthropic window for free
+    - "copilot:gemini-3-flash-preview" # diverse cheap fallback
+    - "anthropic:claude-haiku-4-5"           # final degrade path that keeps the gate manned
+  forbidden_models: []                # any balanced/frontier model with tool-use is acceptable
+  window_policy:
+    heavy_work: false                 # gating = a burst of small calls around a release window
+    defer_below_window_pct: 15        # gate stays manned on a low window; defers below 15%
+    on_window_exhausted: swap-fallback
+
+# ───────────────────────────────────────────────────────────────── skills
+skills:
+  shared:
+    - { skill: release-management,  scope: admin }   # owns the release process end to end
+    - { skill: deployment,          scope: execute } # executes the post-gate deployment
+    - { skill: change-control,      scope: admin }   # owns change-management approval flow
+    - { skill: review-gates,        scope: read }     # reads gate results before authorizing a release
+    - { skill: knowledge-retrieval, scope: read }     # queries mempalace for prior releases + rollbacks
+    - { skill: knowledge-capture,   scope: write }    # captures release records, rollback outcomes, RCAs
+  claude_skills: []
+  hermes_skills: []
+
+# ─────────────────────────────────────────────────────────────── plugins
+plugins: []                          # release-manager needs no installable capability bundles
+
+# ──────────────────────────────────────────────────────────── connectors
+connectors:
+  mcp_servers:
+    - { server: orchestrator, access: read }    # reads delegation/merge state + CI status; does not route
+    - { server: kanban,       access: write }    # tracks the release board + readiness checklist
+  integrations:
+    - { integration: comms-bus, access: write }  # stakeholder + user release notifications
+    - { integration: telegram,  access: write }  # user-facing release comms (optional per OOBE connectors)
+
+# ─────────────────────────────────────────────────────────── capabilities
+capabilities:
+  # Least-privilege RBAC scopes. Mrs. Latham gates and executes deployments; she does
+  # NOT merge code and she does NOT modify source. The deployment gate is hers alone.
+  granted:
+    - source-control:read            # reads branch/tag/CI state to verify release readiness
+    - deployment:read                # reads deployment + environment state
+    - deployment:write               # executes the deployment after the gate passes
+    - monitoring:read                # watches post-deploy health to confirm success / trigger rollback
+    - quality-gate:approve           # the deployment-readiness gate is hers to approve or hold
+    - review-gates:read              # reads upstream gate results feeding the release decision
+    - kanban:write                   # maintains the release board + checklist
+    - knowledge-retrieval:read       # retrieves prior release + rollback history
+    - knowledge-capture:write        # records release decisions, outcomes, and RCAs
+  forbidden:
+    - source-control:write           # she gates and releases; she never writes/merges code
+    - source-control:admin           # merge authority belongs to the user-handler, not the gate
+    - quality-gate:override          # she may hold, but never override another gate's rejection
+    - capability-grant               # cannot widen her own or anyone's scopes (archetype-forbidden)
+  least_privilege_justification:
+    deployment:write: "Executes the deployment of a release that has already cleared every upstream gate; this is the role's core action."
+    deployment:read: "Reads deployment and environment state to verify staging matches production and to monitor rollouts."
+    monitoring:read: "Watches post-deploy health checks and error rates to confirm success or trigger the rollback."
+    quality-gate:approve: "Owns the deployment-readiness gate; authorizes the release when the checklist is complete or holds it when it is not."
+    source-control:read: "Verifies merge/tag/CI state to confirm release readiness; no write access required for gating."
+    knowledge-capture:write: "Persists release records, rollback outcomes, and post-deploy root-cause analyses for future releases."
+
+# ───────────────────────────────────────────────────────────────── memory
+memory:
+  kb_read:
+    - { wing: season,  hall: releases }
+    - { wing: season,  hall: decisions }
+    - { wing: season,  hall: reviews }
+    - { wing: private, hall: learnings }
+  kb_write:
+    - { wing: season,  hall: releases }
+    - { wing: private, hall: learnings }
+  capture_tags: ["release-management", "deployment", "rollback", "release-decision", "post-deploy-rca"]
+  retrieval_tags: ["release-management", "rollback", "deployment-failure", "blocked"]
+
+# ───────────────────────────────────────────────────────────────── schedule
+schedule:
+  activation: event-driven           # aligned to release cycles; dormant between release windows
+  heartbeat:
+    beat_interval: PT15M             # while a release window is open, sweep every 15 minutes
+    quiet_hours: []                  # release windows override quiet hours; incidents bypass them
+  cron_jobs:
+    - { job_key: release-readiness-sweep, cron: "*/15 * * * *", task: assess-release-readiness, priority: high,   heavy: false }
+    - { job_key: post-deploy-watch,       cron: "*/5 * * * *",  task: watch-post-deploy-health,  priority: high,   heavy: false }
+  silent_fail_checks:
+    - { check: "ci/cd pipeline accessible",            on_fail: block-and-alert }
+    - { check: "staging environment healthy",          on_fail: block-and-alert }
+    - { check: "rollback mechanism verified",          on_fail: block-and-alert }
+    - { check: "deployment target reachable",          on_fail: block-and-alert }
+    - { check: "stakeholder notification channel open", on_fail: block-and-alert }
+    - { check: "monitoring/health endpoints readable", on_fail: degrade }
+    - { check: "mempalace available",                  on_fail: continue }
+    - { check: "usage window status fresh",            on_fail: continue }
+
+# ───────────────────────────────────────────────────────────────── comms
+comms:
+  subscribe:
+    - { topic: "team:{season}",                role: both }    # primary team topic
+    - { topic: "gate:{season}:merge",          role: reader }  # confirms merges landed before release
+    - { topic: "gate:{season}:qa",             role: reader }  # confirms QA sign-off
+    - { topic: "gate:{season}:security",       role: reader }  # confirms security scan clear
+    - { topic: "release:{season}",             role: both }    # her release channel
+    - { topic: "control:global",               role: reader }  # listens for incidents + freeze windows
+  publish_default_topic: "release:{season}"
+  can_delegate_to: ["devops-infrastructure", "technical-writer", "qa-lead"]  # changelog/deploy/verify helpers
+  can_be_delegated_by: ["user-handler", "devops-infrastructure", "global-incident-commander"]
+  sync_consult:
+    - { target: "user-handler", when: "a release blocker requires a scope/timeline decision", blocking: true }
+    - { target: "qa-lead",      when: "test sign-off status is ambiguous before a gate decision", blocking: false }
+
+# ───────────────────────────────────────────────────────────────── subagents
+subagents:
+  can_spawn: true
+  max_concurrent: 2
+  allowed_archetypes: ["technical-writer"]   # changelog/release-notes drafting helper only
+  spawn_model_class: fast-cheap              # mechanical drafting runs cheaper than the gate itself
+
+# ───────────────────────────────────────────────────────────────── guardrails
+guardrails:
+  autonomy_level: bounded-authority   # full authority over the deployment gate; bounded by the rules below
+  requires_human_approval_for:
+    - "deploy-to-production"
+    - "release-during-a-declared-freeze-window"
+    - "hotfix-bypassing-the-standard-checklist"
+  forbidden_actions:
+    - "Ship a release with unresolved P0/P1 blockers"
+    - "Deploy without a documented, tested rollback plan"
+    - "Deploy without stakeholder notification"
+    - "Release before staging matches production configuration"
+    - "Write or modify implementation code (scope is gate + release only)"
+    - "Merge to a protected branch (merge authority belongs to the user-handler)"
+    - "Override another gate's rejection (she may hold, never override)"
+    - "Ignore an incident-commander freeze or escalation on control:global"
+    - "Use a capability scope not in the granted list"
+  escalation_target: "user-handler"
+  spend_cap_usd: null                 # N/A for a coordination/gating role
+
+# ───────────────────────────────────────────────────────────────── db_linkage
+db_linkage:
+  archetype_pk: release-manager       # FK target in the archetypes table
+  maps_to_tables:
+    - archetypes
+    - agent_configs
+    - agents             # the instance row binds this config to the Mrs. Latham casting in a season
+    - agent_config_skills
+    - agent_config_connectors
+    - agent_config_capabilities
+    - agent_config_topics
+    - cron_jobs
+    - comms_subscription
+    - role_model_fit
+  # Seeds role_model_fit (model-intelligence track owns the table + final fit math).
+  # model ids are model_catalog.id values (provider-qualified).
+  role_model_fit_seed:
+    - { model_id: "anthropic:claude-sonnet-4-6",          fit_score: 0.90, note: "Best balanced fit for checklist judgment + tool-use + clear release comms; recommended, fallback_rank 0." }
+    - { model_id: "copilot:gpt-5.4-mini",          fit_score: 0.78, note: "Off-Anthropic balanced fallback; preferred when the Anthropic window is pressured (free against the Copilot seat)." }
+    - { model_id: "copilot:gemini-3-flash-preview", fit_score: 0.70, note: "Diverse cheap fallback; keeps the gate manned." }
+    - { model_id: "anthropic:claude-haiku-4-5",           fit_score: 0.66, note: "Final degrade path; mechanical checklist verification when balanced windows are spent." }

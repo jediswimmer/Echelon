@@ -1,15 +1,24 @@
 /**
- * Counselor Service — Multi-model consensus engine for Echelon placements
+ * Counselor Service — Multi-model consensus engine for Echelon placements (B3)
  *
- * Fans out to 4 model endpoints in parallel, applies placement-specific
- * consensus rules, and returns a structured verdict.
+ * Fans out to 4 real model seats in parallel via the copied build orchestration
+ * (`Counselor` + `computeConsensus`), each seat wrapping the B1 model-invoke
+ * primitive. Applies placement-specific consensus, enforces quorum, and maps the
+ * build verdict back to the Electron `CounselorVerdict` shape the IPC contract +
+ * `CounselorVerdict.tsx` UI expect.
  *
- * Model calls are currently stubs returning mock verdicts.
- * Real API integration will follow once keys are provisioned.
+ * Seats (Grok dropped per spec; Hermes added as the 4th):
+ *   opus (anthropic) · gpt5 · gemini · hermes (nous:hermes-4 → Tasmania fallback)
  */
 
+import { Counselor, type CounselorVerdict as BuildVerdict, type PlacementId } from './counselor/counselor';
+import { OpusClient } from '../core/model-clients/opus';
+import { GPT5Client } from '../core/model-clients/gpt5';
+import { GeminiClient } from '../core/model-clients/gemini';
+import { HermesClient } from '../core/model-clients/hermes';
+
 // ---------------------------------------------------------------------------
-// Types
+// Types (Electron-facing — unchanged contract for IPC + UI)
 // ---------------------------------------------------------------------------
 
 export type CounselorPlacement =
@@ -50,142 +59,44 @@ interface ModelKeys {
 export const PLACEMENTS: Record<CounselorPlacement, { label: string; description: string; algorithm: string }> = {
   'skill-promotion': {
     label: 'Skill Promotion',
-    description: 'Majority vote (3/4 agree) to promote a skill',
-    algorithm: 'majority',
+    description: 'Placement A — min-score (every seat ≥4), 4/4 quorum',
+    algorithm: 'min-score',
   },
   'design-review': {
     label: 'Design Review',
-    description: 'Majority vote (3/4 agree) to approve a design',
+    description: 'Placement B — majority (3/4 agree) to approve a design',
     algorithm: 'majority',
   },
   'deadlock-escalation': {
     label: 'Deadlock Escalation',
-    description: 'Weighted average confidence to break a deadlock',
-    algorithm: 'weighted-average',
+    description: 'Placement C — binding majority verdict to break a deadlock',
+    algorithm: 'majority',
   },
   'adversarial': {
     label: 'Adversarial Review',
-    description: 'Any red flag vetoes — unanimous pass required',
-    algorithm: 'unanimous',
+    description: 'Placement D — independent majority risk assessment',
+    algorithm: 'majority',
   },
 };
 
+// Electron placement string → build PlacementId.
+const PLACEMENT_ID: Record<CounselorPlacement, PlacementId> = {
+  'skill-promotion': 'A',
+  'design-review': 'B',
+  'deadlock-escalation': 'C',
+  'adversarial': 'D',
+};
+
 // ---------------------------------------------------------------------------
-// Model identifiers
+// Model identifiers (current seat roster — Grok dropped, Hermes added)
 // ---------------------------------------------------------------------------
 
 const MODELS = [
-  'gemini-2.5-pro',
-  'gpt-5',
-  'claude-opus-4',
-  'grok-3',
+  'claude-opus-4-8',
+  'copilot:gpt-5.4',
+  'copilot:gemini-3-pro-preview',
+  'nous:hermes-4',
 ] as const;
-
-// ---------------------------------------------------------------------------
-// Stub model invocation (returns mock verdict)
-// ---------------------------------------------------------------------------
-
-async function invokeModelStub(
-  model: string,
-  _placement: CounselorPlacement,
-  _context: string,
-  _keys: ModelKeys,
-): Promise<ModelVerdict> {
-  // Simulate network latency (50-300ms)
-  const latency = 50 + Math.random() * 250;
-  await new Promise((resolve) => setTimeout(resolve, latency));
-
-  // Deterministic-ish mock: most models approve, with some variance
-  const roll = Math.random();
-  let decision: CounselorDecision;
-  let confidence: number;
-
-  if (roll < 0.7) {
-    decision = 'approve';
-    confidence = 0.75 + Math.random() * 0.2;
-  } else if (roll < 0.9) {
-    decision = 'reject';
-    confidence = 0.6 + Math.random() * 0.25;
-  } else {
-    decision = 'escalate';
-    confidence = 0.4 + Math.random() * 0.3;
-  }
-
-  return {
-    model,
-    decision,
-    confidence: Math.round(confidence * 100) / 100,
-    reasoning: `[STUB] ${model} returned ${decision} with ${(confidence * 100).toFixed(0)}% confidence`,
-    latencyMs: Math.round(latency),
-  };
-}
-
-// ---------------------------------------------------------------------------
-// Consensus algorithms
-// ---------------------------------------------------------------------------
-
-function majorityConsensus(verdicts: ModelVerdict[]): { decision: CounselorDecision; confidence: number } {
-  const approveCount = verdicts.filter((v) => v.decision === 'approve').length;
-  const rejectCount = verdicts.filter((v) => v.decision === 'reject').length;
-  const majorityThreshold = Math.ceil(verdicts.length * 0.75); // 3 of 4
-
-  const avgConfidence =
-    verdicts.reduce((sum, v) => sum + v.confidence, 0) / verdicts.length;
-
-  if (approveCount >= majorityThreshold) {
-    return { decision: 'approve', confidence: Math.round(avgConfidence * 100) / 100 };
-  }
-  if (rejectCount >= majorityThreshold) {
-    return { decision: 'reject', confidence: Math.round(avgConfidence * 100) / 100 };
-  }
-  return { decision: 'escalate', confidence: Math.round(avgConfidence * 100) / 100 };
-}
-
-function weightedAverageConsensus(verdicts: ModelVerdict[]): { decision: CounselorDecision; confidence: number } {
-  // Weights per model (higher = more influence)
-  const weights: Record<string, number> = {
-    'claude-opus-4': 1.3,
-    'gpt-5': 1.2,
-    'gemini-2.5-pro': 1.0,
-    'grok-3': 0.9,
-  };
-
-  let totalWeight = 0;
-  let weightedScore = 0;
-
-  for (const v of verdicts) {
-    const w = weights[v.model] ?? 1.0;
-    const score = v.decision === 'approve' ? 1 : v.decision === 'reject' ? 0 : 0.5;
-    weightedScore += score * w * v.confidence;
-    totalWeight += w;
-  }
-
-  const avg = totalWeight > 0 ? weightedScore / totalWeight : 0;
-  const confidence = Math.round(avg * 100) / 100;
-
-  if (avg >= 0.6) return { decision: 'approve', confidence };
-  if (avg <= 0.35) return { decision: 'reject', confidence };
-  return { decision: 'escalate', confidence };
-}
-
-function unanimousConsensus(verdicts: ModelVerdict[]): { decision: CounselorDecision; confidence: number } {
-  // Any rejection vetoes the entire decision
-  const hasRejection = verdicts.some((v) => v.decision === 'reject');
-  const avgConfidence =
-    verdicts.reduce((sum, v) => sum + v.confidence, 0) / verdicts.length;
-  const confidence = Math.round(avgConfidence * 100) / 100;
-
-  if (hasRejection) {
-    return { decision: 'reject', confidence };
-  }
-
-  const hasEscalation = verdicts.some((v) => v.decision === 'escalate');
-  if (hasEscalation) {
-    return { decision: 'escalate', confidence };
-  }
-
-  return { decision: 'approve', confidence };
-}
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -193,43 +104,92 @@ function unanimousConsensus(verdicts: ModelVerdict[]): { decision: CounselorDeci
 
 /**
  * Invoke the Counselor panel for a given placement and context.
- * Fans out to all 4 models in parallel, then applies placement-specific consensus.
+ * Constructs the 4 real seats, runs the build orchestration at the mapped
+ * placement, and maps the rating-based build verdict to the Electron shape.
  */
 export async function invokeCounselor(
   placement: CounselorPlacement,
   context: string,
   keys: ModelKeys = {},
 ): Promise<CounselorVerdict> {
-  // Fan out to all models in parallel
-  const modelVerdicts = await Promise.all(
-    MODELS.map((model) => invokeModelStub(model, placement, context, keys)),
-  );
+  const opus = new OpusClient({ apiKey: keys.anthropicKey });
+  const gpt5 = new GPT5Client({ apiKey: keys.openaiKey });
+  const gemini = new GeminiClient({ apiKey: keys.geminiKey });
+  const hermes = new HermesClient({
+    remoteBaseUrl: process.env.HERMES_BASE_URL || undefined,
+    apiKey: process.env.HERMES_API_KEY || undefined,
+  });
 
-  // Apply placement-specific consensus
-  let result: { decision: CounselorDecision; confidence: number };
+  const counselor = new Counselor([opus, gpt5, gemini, hermes]);
 
-  switch (placement) {
-    case 'skill-promotion':
-    case 'design-review':
-      result = majorityConsensus(modelVerdicts);
-      break;
-    case 'deadlock-escalation':
-      result = weightedAverageConsensus(modelVerdicts);
-      break;
-    case 'adversarial':
-      result = unanimousConsensus(modelVerdicts);
-      break;
-    default:
-      result = majorityConsensus(modelVerdicts);
+  const buildVerdict = await counselor.invoke({
+    placement: PLACEMENT_ID[placement],
+    convener: 'counselor-service',
+    prompt_context: {
+      system:
+        'You are a member of the Echelon Counselor council. Independently assess the ' +
+        'matter below and return a rating from 1 (reject) to 5 (strong approve). ' +
+        'Respond with a JSON object {"rating": <1-5>, "notes": "<one sentence>"}.',
+      user: context,
+    },
+  });
+
+  return mapBuildVerdict(placement, buildVerdict);
+}
+
+/**
+ * Map a rating-based build verdict to the Electron decision/confidence shape.
+ * - Council approved → 'approve'; otherwise 'reject' unless the split is
+ *   marginal (high stdev / near threshold) in which case 'escalate'.
+ * - confidence is normalized to 0..1 from the 1..5 final rating.
+ * - per-seat ratings map to per-model decisions (≥4 approve, ≤2 reject, else escalate).
+ */
+function mapBuildVerdict(placement: CounselorPlacement, v: BuildVerdict): CounselorVerdict {
+  const modelVerdicts: ModelVerdict[] = v.per_model_responses.map((r) => {
+    const rating = r.rating ?? 0;
+    return {
+      model: r.model,
+      decision: ratingToDecision(rating),
+      confidence: clamp01(rating / 5),
+      reasoning: truncate(r.content, 400),
+      latencyMs: r.duration_ms,
+    };
+  });
+
+  const finalRating = v.consensus.final_rating;
+  const confidence = clamp01(finalRating / 5);
+
+  let decision: CounselorDecision;
+  if (v.consensus.approved) {
+    decision = 'approve';
+  } else if (finalRating >= 3 || v.consensus.stdev >= 1) {
+    // Marginal / divided council → escalate rather than hard-reject.
+    decision = 'escalate';
+  } else {
+    decision = 'reject';
   }
 
   return {
     placement,
-    decision: result.decision,
-    confidence: result.confidence,
+    decision,
+    confidence: Math.round(confidence * 100) / 100,
     modelVerdicts,
     timestamp: new Date().toISOString(),
   };
+}
+
+function ratingToDecision(rating: number): CounselorDecision {
+  if (rating >= 4) return 'approve';
+  if (rating <= 2) return 'reject';
+  return 'escalate';
+}
+
+function clamp01(n: number): number {
+  return Math.max(0, Math.min(1, n));
+}
+
+function truncate(s: string, max: number): string {
+  return s.length > max ? `${s.slice(0, max)}…` : s;
 }
 
 /**
@@ -242,13 +202,18 @@ export function listPlacements() {
   }));
 }
 
+/** Exposed for diagnostics / tests — the current seat model identifiers. */
+export function listModels(): readonly string[] {
+  return MODELS;
+}
+
 /**
  * Resolve model API keys from CLI auth configs and app settings.
  *
  * - Anthropic: ANTHROPIC_API_KEY env var (set when Claude CLI is configured)
  * - OpenAI: access_token from ~/.codex/auth.json (Codex CLI OAuth)
  * - Gemini: GOOGLE_API_KEY or GEMINI_API_KEY env var, or gcloud ADC
- * - Grok: dedicated field in app settings (no CLI tool to piggyback on)
+ * - Grok: dedicated field in app settings (legacy; retained for compatibility)
  */
 export function resolveModelKeys(appSettings: Record<string, unknown>): ModelKeys {
   return {

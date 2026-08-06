@@ -1,0 +1,19 @@
+required_capabilities:
+  - delegation:write              # issues direction and arbitration to the C-suite via delegate_task
+  - quality-gate:override        # may override a NON-security gate on company-level grounds, after due process
+  - counselor-invocation:execute # convenes the Counselor for company-level deadlock / high-stakes calls
+  - knowledge-retrieval:read     # reads prior decisions, ADRs, and exec history before deciding
+  - knowledge-capture:write      # persists strategic decisions and arbitration verdicts to the decision log
+  - policy:admin                 # owns / interprets the guardrail policy on the founder-user's behalf
+
+forbidden_capabilities:
+  - source-control:write         # the CEO does not write code or commit
+  - source-control:admin         # merge authority belongs to the user-handler, not the CEO
+  - deployment:read              # the CEO directs; platform-sre operates and observes
+  - deployment:write             # the CEO never deploys
+  - capability-grant             # granting new scopes is a control-plane / orchestrator function, logged to audit
+
+# Note: quality-gate:override is granted for non-security gates ONLY. A security-gate
+# rejection is never overridable by the CEO; it requires a binding Counselor Placement C
+# verdict. This carve-out is enforced as a guardrail (see agent.config.yaml guardrails),
+# not as a separate forbidden capability — the verb vocabulary has no finer grain than the scope.

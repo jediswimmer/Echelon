@@ -1,18 +1,48 @@
 'use client';
 
 import { useEffect, useState, useCallback, useRef } from 'react';
-import type { KanbanTask, KanbanColumn, KanbanTaskCreate, KanbanTaskUpdate, KanbanMoveResult } from '@/types/kanban';
+import type { KanbanTask, KanbanColumn, KanbanTaskCreate, KanbanTaskUpdate, KanbanMoveResult, KanbanComment, KanbanScope } from '@/types/kanban';
 import { isElectron } from './useElectron';
 
+export interface UseElectronKanbanOptions {
+  seasonId?: string;
+  scope?: KanbanScope;
+}
+
 /**
- * Hook for Kanban board management via Electron IPC
+ * Returns true if a task belongs in the active scope filter.
+ * Used to keep live events (create/update) consistent with the fetched view.
  */
-export function useElectronKanban() {
+function taskInScope(task: { seasonId?: string }, scope: KanbanScope, seasonId?: string): boolean {
+  // Mirror the backend: season scope with no seasonId yet ⇒ show all (no filter),
+  // so live events aren't dropped in the transient "By season selected, none chosen" state.
+  if (scope === 'season') return !seasonId || task.seasonId === seasonId;
+  if (scope === 'global') return !task.seasonId;
+  return true; // 'all'
+}
+
+/**
+ * Hook for Kanban board management via Electron IPC.
+ *
+ * Optional `opts` scopes the board to a season (`scope:'season'` + `seasonId`),
+ * to the global/unassigned bucket (`scope:'global'`), or all tasks (default).
+ */
+export function useElectronKanban(opts?: UseElectronKanbanOptions) {
+  const scope: KanbanScope = opts?.scope ?? 'all';
+  const seasonId = opts?.seasonId;
+
   const [tasks, setTasks] = useState<KanbanTask[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Fetch all tasks
+  // Keep the latest scope in refs so the (subscribe-once) event handlers
+  // can filter incoming tasks without re-subscribing on every scope change.
+  const scopeRef = useRef(scope);
+  scopeRef.current = scope;
+  const seasonIdRef = useRef(seasonId);
+  seasonIdRef.current = seasonId;
+
+  // Fetch tasks for the active scope
   const fetchTasks = useCallback(async () => {
     if (!isElectron() || !window.electronAPI?.kanban) {
       setIsLoading(false);
@@ -20,7 +50,7 @@ export function useElectronKanban() {
     }
 
     try {
-      const result = await window.electronAPI.kanban.list();
+      const result = await window.electronAPI.kanban.list({ scope, seasonId });
       if (result.error) {
         setError(result.error);
       } else {
@@ -33,7 +63,7 @@ export function useElectronKanban() {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [scope, seasonId]);
 
   // Create a new task
   // Note: State is updated via onTaskCreated event to avoid duplicates
@@ -94,6 +124,36 @@ export function useElectronKanban() {
     return result;
   }, []);
 
+  // Add a comment to a task (state updated via onTaskUpdated broadcast)
+  const addComment = useCallback(async (
+    taskId: string,
+    body: string,
+    author: string,
+    authorName?: string
+  ) => {
+    if (!isElectron() || !window.electronAPI?.kanban) {
+      throw new Error('Electron API not available');
+    }
+    return window.electronAPI.kanban.commentAdd(taskId, { author, authorName, body });
+  }, []);
+
+  // List a task's comments
+  const listComments = useCallback(async (taskId: string): Promise<KanbanComment[]> => {
+    if (!isElectron() || !window.electronAPI?.kanban) {
+      return [];
+    }
+    const result = await window.electronAPI.kanban.commentList(taskId);
+    return (result.comments ?? []) as KanbanComment[];
+  }, []);
+
+  // Delete a comment from a task
+  const deleteComment = useCallback(async (taskId: string, commentId: string) => {
+    if (!isElectron() || !window.electronAPI?.kanban) {
+      throw new Error('Electron API not available');
+    }
+    return window.electronAPI.kanban.commentDelete(taskId, commentId);
+  }, []);
+
   // Get tasks by column
   const getTasksByColumn = useCallback((column: KanbanColumn): KanbanTask[] => {
     return tasks
@@ -106,17 +166,33 @@ export function useElectronKanban() {
     if (!isElectron() || !window.electronAPI?.kanban) return;
 
     const unsubCreated = window.electronAPI.kanban.onTaskCreated((task) => {
+      const t = task as KanbanTask;
+      // Ignore tasks that fall outside the active scope filter.
+      if (!taskInScope(t, scopeRef.current, seasonIdRef.current)) return;
       setTasks(prev => {
         // Check if task already exists (might have been added by our own action)
-        if (prev.some(t => t.id === task.id)) {
+        if (prev.some(existing => existing.id === t.id)) {
           return prev;
         }
-        return [...prev, task as KanbanTask];
+        return [...prev, t];
       });
     });
 
     const unsubUpdated = window.electronAPI.kanban.onTaskUpdated((task) => {
-      setTasks(prev => prev.map(t => t.id === task.id ? task as KanbanTask : t));
+      const t = task as KanbanTask;
+      setTasks(prev => {
+        const inScope = taskInScope(t, scopeRef.current, seasonIdRef.current);
+        const exists = prev.some(existing => existing.id === t.id);
+        // A task that drifted out of scope (or never belonged) should be dropped.
+        if (!inScope) {
+          return exists ? prev.filter(existing => existing.id !== t.id) : prev;
+        }
+        // In-scope: update if present, otherwise add (e.g. just assigned a seasonId).
+        if (exists) {
+          return prev.map(existing => existing.id === t.id ? t : existing);
+        }
+        return [...prev, t];
+      });
     });
 
     const unsubDeleted = window.electronAPI.kanban.onTaskDeleted((event: { id: string }) => {
@@ -145,6 +221,9 @@ export function useElectronKanban() {
     moveTask,
     deleteTask,
     reorderTasks,
+    addComment,
+    listComments,
+    deleteComment,
     getTasksByColumn,
     refresh: fetchTasks,
   };

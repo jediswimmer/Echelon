@@ -9,13 +9,13 @@ role_summary: |
   comprehensive, reliable, and fast.
 
 primary_responsibilities:
-  - Design and implement E2E test frameworks
-  - Build visual regression testing pipelines
-  - Maintain and scale test infrastructure
-  - Create reusable test utilities and page objects
-  - Integrate automated tests into CI/CD pipelines
-  - Analyze flaky tests and improve test reliability
-  - Report test coverage metrics and quality trends
+  - "Design and implement E2E test frameworks"
+  - "Build visual regression testing pipelines"
+  - "Maintain and scale test infrastructure"
+  - "Create reusable test utilities and page objects"
+  - "Integrate automated tests into CI/CD pipelines"
+  - "Analyze flaky tests and improve test reliability"
+  - "Report test coverage metrics and quality trends"
 
 inputs:
   - type: "source_code"

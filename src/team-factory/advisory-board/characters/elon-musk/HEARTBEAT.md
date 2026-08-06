@@ -1,6 +1,13 @@
 ---
 character_name: Elon Musk
 archetype: advisory-board-sme
+theme: tbbt
+beat_interval: event-driven
+silent_fail_checks:
+  - current_architecture_context_available
+  - framework_documentation_accessible
+  - prior_orchestration_decisions_loaded
+  - mempalace_available
 ---
 
 # HEARTBEAT.md — Elon Musk's Heartbeat Configuration

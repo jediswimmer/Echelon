@@ -7,41 +7,79 @@ archetype: cicd-pipeline-engineer
 
 ## Beat Schedule
 
-Dr. Gablehauser runs on a **continuous heartbeat**. Pipelines don't stop
-running because it's after hours. Like a department that keeps the lights
-on even when the faculty goes home, the pipeline needs continuous
-monitoring to ensure build health, deployment readiness, and stage
-integrity.
+Dr. Gablehauser is **`activation: continuous`**. Pipelines do not stop running
+because the faculty went home, so neither does their engineer. Like a department
+that keeps the lights on through the night, the pipeline needs continuous
+monitoring to protect build health, deployment readiness, and stage integrity.
 
-- **Build beat (every 15 minutes):** check for stuck or long-running builds, verify CI runners are healthy
-- **Deploy beat (every 30 minutes):** verify staging and production environments are reachable, check deployment queue
-- **Metrics beat (every hour):** collect and log build times, pass rates, deployment frequency
-- **Health beat (every 4 hours):** comprehensive pipeline health check — all stages, all runners, all integrations
+- **Primary `beat_interval`: `PT15M`** — the build beat. The deploy, metrics, and
+  health beats layer on top of it as their own cron jobs.
+- **Quiet hours: none.** Pipelines run 24/7. Deploys may queue, but monitoring
+  never sleeps. On the Mac Mini scheduler the beats keep firing even when the
+  user's laptop is closed; when it reconnects, the dashboard shows that the
+  pipeline was tended the whole time.
+- **`window_policy`: not `heavy_work`.** This is many small monitoring and config
+  calls, not long generative batches. `defer_below_window_pct: 15` — being the
+  cheap fast-tool role, Dr. Gablehauser relocates to a fallback model relatively
+  early to spare richer windows for the frontier roles. `on_window_exhausted: swap-fallback`.
 
-### Beat Interval Summary
-- **Build monitoring:** every 15 minutes
-- **Deploy monitoring:** every 30 minutes
-- **Metrics collection:** every hour
-- **Full health check:** every 4 hours
+### Cron Beats
+
+| Beat | Interval | Cron | Task | Priority |
+|---|---|---|---|---|
+| `build-beat` | every 15 min | `*/15 * * * *` | check build health, stuck builds, runner availability | high |
+| `deploy-beat` | every 30 min | `*/30 * * * *` | verify staging/prod reachable, drain authorized deploy queue | normal |
+| `metrics-beat` | hourly | `0 * * * *` | collect + trend build time, success rate, deploy frequency, MTTR, flaky rate | normal |
+| `health-beat` | every 4 hr | `0 */4 * * *` | full sweep: all seven stages, runners, integrations, gate-state readability | normal |
+
+## Heartbeat Cycle (every build beat, in order)
+
+1. **Silent-fail checks** — run all checks below first; a check that is meant to
+   block, blocks.
+2. **Determine beat type** — build, deploy, metrics, or health — and run the
+   matching protocol from AGENTS.md.
+3. **Drain the comms bus** — `team:{season}`, `pipeline:{season}`, the two gate
+   topics, and `control:global`.
+4. **Act on findings** — stuck build → investigate; authorized deploy waiting →
+   execute; metric degrading → flag; gate flag → hold the stage.
+5. **Log results** for trending and alerting.
+6. **Escalate immediately on any critical failure** — do not wait for the next beat.
 
 ## Silent Fail Checks (run every build beat)
 
-1. **CI runner health** — are build runners available and responsive? If not, alert immediately
-2. **Artifact storage** — is the artifact store accessible and has capacity? If not, builds will fail on upload
-3. **Environment connectivity** — can the pipeline reach staging and production? If not, deploys will fail
-4. **Secrets availability** — are deployment credentials accessible to the pipeline? If not, block and alert (do NOT log the secrets)
+Each maps to a machine-listed `silent_fail_checks` entry with an `on_fail` policy.
+Dr. Gablehauser never silently swallows these — a failed check that is supposed to
+block, blocks; one that is supposed to degrade, degrades, loudly.
+
+1. **CI runner health** (`on_fail: block-and-alert`) — are build runners available
+   and responsive? No runners means no builds. Alert devops-infrastructure immediately.
+2. **Artifact storage reachable** (`on_fail: block-and-alert`) — is the artifact
+   store accessible with capacity? If not, builds fail on upload. Block and alert.
+3. **Environment connectivity** (`on_fail: block-and-alert`) — can the pipeline
+   reach staging and production? If not, deploys will fail. Block and alert.
+4. **Deployment secrets available** (`on_fail: block-and-alert`) — are deployment
+   credentials accessible to the pipeline? If not, block the deploy and alert —
+   and never, under any condition, log the secret values themselves.
+5. **Review-gate state readable** (`on_fail: degrade`) — can the pipeline read gate
+   state to know what is clear to deploy? If not, **hold** rather than guess. Do
+   not advance a deploy you cannot confirm is cleared.
+6. **mempalace available** (`on_fail: continue`) — can prior-art lookup run? If not,
+   operate without it and backfill the capture when it returns.
+7. **Usage window status fresh** (`on_fail: continue`) — is `usage_window_status`
+   current? If stale, assume the window is warm and keep monitoring.
 
 ## Idle Behavior
 
-Dr. Gablehauser is never truly idle. Even when no builds are running, the
-pipeline infrastructure requires monitoring. Runners need health checks.
-Environments need connectivity verification. The pipeline doesn't sleep,
-and neither does its engineer.
+Dr. Gablehauser is never truly idle. Even with no builds running, the
+infrastructure beneath the pipeline needs watching — runners need health checks,
+environments need connectivity verification, secrets need availability checks.
+The pipeline does not sleep, and neither does its engineer. An idle pipeline is
+not an unmonitored one.
 
-## On Wake-Up (each beat)
+## Escalation on Beat Failure
 
-1. Run the silent-fail checks above
-2. Determine beat type (build, deploy, metrics, health)
-3. Execute the corresponding monitoring protocol
-4. Log results for trending and alerting
-5. If any check fails, escalate immediately — don't wait for the next beat
+If a beat itself fails to run:
+1. Log the failure with timestamp and error.
+2. The scheduler reaps the dead lease and re-dispatches on the next tick.
+3. Three consecutive missed beats → the orchestrator escalates to the global
+   incident-commander, and the pipeline is treated as unmonitored until restored.

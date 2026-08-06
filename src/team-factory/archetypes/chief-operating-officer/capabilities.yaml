@@ -1,0 +1,22 @@
+required_capabilities:
+  - delegation:write              # issues operational direction and tasking to the PMO / procurement / IT leads
+  - knowledge-retrieval:read      # reads prior operating decisions, runbooks, and vendor history before deciding
+  - knowledge-capture:write       # persists operating-cadence, capacity, and vendor decisions to the decision log
+  - monitoring:read               # reads operational KPIs (delivery throughput, blocker age, vendor SLAs, utilization)
+  - kanban:write                  # owns the operations / program board: cadence items, dependency tracking
+  - budget:approve                # approves vendor / tooling spend WITHIN the CFO-set operating budget envelope
+  - vendor:write                  # onboards and manages vendor / connector relationships through procurement
+
+forbidden_capabilities:
+  - source-control:write          # the COO does not write code or commit
+  - source-control:admin          # merge authority belongs to the user-handler, not the COO
+  - deployment:read               # the COO directs operations; platform-sre operates and observes
+  - deployment:write              # the COO never deploys
+  - quality-gate:override         # the COO runs the cadence; she does not override engineering review gates
+  - counselor-invocation:execute  # only the merge authority / CEO convenes a binding Counselor
+  - capability-grant              # granting new scopes is a control-plane / orchestrator function, logged to audit
+
+# Note: budget:approve is bounded — the COO approves operating spend only WITHIN the
+# budget envelope the CFO sets each cycle. Spend above the envelope, or any change to
+# the envelope itself, escalates to the CFO and (for irreversible commitments) the CEO.
+# This bound is enforced as a guardrail (see agent.config.yaml), not as a finer scope verb.

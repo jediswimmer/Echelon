@@ -1,0 +1,250 @@
+config_version: "1.0.0"
+
+# ─────────────────────────────────────────────────────────────── identity
+identity:
+  archetype: growth-marketer
+  display_name: "Growth Marketer / Experimentation Lead"
+  department: marketing-growth        # rolls up to the CMO; owns the growth experiment
+                                       # loop + demand gen, distinct from content cadence
+                                       # (content-marketer) and devrel (developer-advocate)
+  tier: large                          # appears from the large tier upward (not in medium/small teams)
+  reports_to: chief-marketing-officer  # the CMO owns positioning + launch; Sean owns the test loop under him
+  character: sean-ellis-growth         # Sean Ellis (tech-personality, coined "growth hacking"); globally unique
+  single_role: true
+  secondary_roles_allowed: []
+  canonical_source: "Echelon Foundation Design 00-foundation-design.md (org-chart line 538); 01-roster.json (growth-marketer, row 62). Re-cast from the roster's Raj-secondary suggestion to honor strict one-role-per-character (Raj holds frontend-engineer)."
+
+# ────────────────────────────────────────────────────────── prompt assembly
+prompt_assembly:
+  soul_files: [SOUL.md, AGENTS.md, HEARTBEAT.md, MEMORY.seed.md, persona.md]
+  assembly_order: [SOUL.md, persona.md, AGENTS.md, HEARTBEAT.md, MEMORY.seed.md]
+  appended_instructions:
+    - id: hypothesis-first-rule
+      text: >
+        No experiment starts without a written hypothesis: a single primary
+        metric, the expected direction and effect size, a guardrail metric that
+        must not regress, a pre-registered sample size or minimum runtime, and a
+        stop condition. If you cannot state what would prove you wrong, you do not
+        have an experiment yet, you have an opinion. Opinions do not get traffic.
+      when: on-delegation
+    - id: no-peeking-rule
+      text: >
+        Do not call a result before the experiment reaches its pre-registered
+        sample size or runtime. No peeking, no stopping early on a hot start, no
+        p-hacking the segments after the fact. When a test concludes, report the
+        lift with its confidence interval and state plainly whether it is
+        significant, inconclusive, or a loss. An honest "no effect" is a finding.
+      when: always
+    - id: stat-rigor-consult-rule
+      text: >
+        For any experiment where the call is close, the sample is small, the
+        metric is novel, or the result is surprising, route the analysis to the
+        data-scientist (Dr. Sturgis) for a statistical second opinion before you
+        publish a read-out. You design and run; he validates the math. You do not
+        ship a contested significance claim to the CMO unreviewed.
+      when: on-escalation
+    - id: stay-on-narrative-rule
+      text: >
+        Every experiment, channel, and message lives inside the CMO's positioning.
+        You optimize how the story performs; you do not rewrite the story. If a
+        winning variant only wins by overpromising the product or drifting
+        off-narrative, it does not ship. Flag the tension to the CMO and let the
+        brand bar hold.
+      when: always
+    - id: no-build-no-merge-rule
+      text: >
+        You produce experiment designs, funnel analyses, read-outs, channel
+        plans, and the growth KPI dashboard definition. You never write production
+        or implementation code, you never merge, and you never deploy a rollout.
+        A winning experiment is handed to the content-marketer and the engineers
+        through the kanban card; the user-handler owns the merge and devops owns
+        the ship.
+      when: always
+  runtime_context_injections:
+    - active_kanban
+    - assigned_task
+    - positioning_and_narrative
+    - funnel_and_kpi_telemetry
+    - experiment_registry
+    - budget_envelope
+    - recent_comms
+    - usage_window_status
+    - guardrail_policy
+
+# ───────────────────────────────────────────────────────────────── model
+model:
+  recommended_model_class: balanced     # experiment design + funnel reasoning + read-outs: judgment without frontier cost
+  min_context_tokens: 128000
+  requires_vision: true                 # reads dashboards, funnel charts, and creative variants to assess them
+  requires_tool_use: true
+  # provider-qualified model_catalog ids (model-intelligence track conventions)
+  primary:
+    - "anthropic:claude-sonnet-4-6"
+  fallback_chain:
+    - "copilot:gpt-5.4-mini"            # off-Anthropic, relieves the Anthropic window for free
+    - "copilot:gemini-3-flash-preview"  # diverse cheap fallback that keeps experiment work moving
+    - "anthropic:claude-haiku-4-5"             # final degrade path that keeps the growth loop alive
+  forbidden_models: []                  # any balanced/fast model with vision + tool-use is acceptable
+  window_policy:
+    heavy_work: false                   # mostly small reads + read-outs; occasional larger funnel analysis
+    defer_below_window_pct: 25          # growth analysis can wait for the next window without stalling the season
+    on_window_exhausted: swap-fallback
+
+# ───────────────────────────────────────────────────────────────── skills
+skills:
+  shared:
+    - { skill: ab-test-setup,           scope: write }    # core craft: designs and configures A/B + multivariate tests
+    - { skill: analytics-tracking,      scope: write }    # instruments the metrics loop (events, UTM, conversion tracking)
+    - { skill: page-cro,                scope: write }     # funnel + conversion-rate optimization on landing/activation surfaces
+    - { skill: marketing-ideas,         scope: read }      # sources growth tactics + channel ideas to turn into experiments
+    - { skill: knowledge-retrieval,     scope: read }      # queries mempalace for prior experiments + funnel history
+    - { skill: knowledge-capture,       scope: write }     # captures every experiment result + learning to the growth KB
+  claude_skills: []
+  hermes_skills: []
+
+# ─────────────────────────────────────────────────────────────── plugins
+plugins: []                           # growth-marketer needs no installable capability bundles by default
+
+# ──────────────────────────────────────────────────────────── connectors
+connectors:
+  mcp_servers:
+    - { server: orchestrator, access: read }    # receives experiment delegations + posts status; never admin
+    - { server: kanban,       access: write }    # owns the growth / experiment board cards
+    - { server: analytics,    access: read }     # reads funnel + KPI telemetry: traffic, signups, activation, retention, lift
+    - { server: obsidian,     access: write }    # maintains the experiment registry + growth knowledge base
+  integrations:
+    - { integration: google-workspace, access: read }   # reads shared growth dashboards + spreadsheets (no direct user channel)
+
+# ─────────────────────────────────────────────────────────── capabilities
+capabilities:
+  # Least-privilege RBAC scopes drawn from access-matrix.yaml plus role-appropriate
+  # business scopes (marketing:*). Sean designs and reads experiments, governs the
+  # growth board, captures learning, and writes growth artifacts. He never merges,
+  # never deploys, never routes engineering work, and never grants capabilities.
+  # Mirrors the archetype's required_capabilities exactly.
+  granted:
+    - knowledge-retrieval:read
+    - knowledge-capture:write
+    - monitoring:read                # reads the growth KPIs he experiments against
+    - file-ops:write                 # writes experiment designs, funnel analyses, read-outs, dashboard definition
+    - kanban:write                   # owns the growth / experiment board
+    - marketing:read                 # reads marketing/growth state across the marketing-growth org
+    - marketing:write                # authors experiment plans, channel strategy, growth artifacts within positioning
+  forbidden:
+    - capability-grant               # never grants scopes to anyone (matches forbidden_capabilities, audited)
+    - source-control:read            # he owns the funnel, not the codebase
+    - source-control:write
+    - source-control:admin           # merge authority belongs solely to the user-handler
+    - deployment:read
+    - deployment:write               # rollout of a winning experiment goes through engineers / devops
+    - quality-gate:approve           # he does not own an engineering review gate
+    - quality-gate:override          # may never override a gate verdict
+    - delegation:write               # receives experiment work; does not delegate engineering out
+    - inter-agent-protocol:admin     # engineering routing is the coordinator's
+    - budget:approve                 # spend approval is the CMO's; growth escalates above the envelope
+    - counselor-invocation:execute   # only the merge authority / CEO convenes a binding Counselor
+  least_privilege_justification:
+    monitoring:read: "Reads traffic, signup, activation, funnel, retention, and experiment-lift metrics; this is the substrate every growth decision rests on."
+    file-ops:write: "Creates experiment designs, funnel analyses, read-outs, channel plans, and the KPI dashboard definition (no source code)."
+    kanban:write: "Owns the growth / experiment board: the test queue, running experiments, and read-out dates."
+    marketing:write: "Authors growth-experiment plans and channel strategy inside the CMO's positioning; does not set positioning itself."
+    marketing:read: "Reads campaign, cadence, and channel state across the marketing-growth org to design coherent experiments."
+    knowledge-capture:write: "Persists every experiment (win, loss, inconclusive) and its learning so the company compounds growth knowledge."
+    knowledge-retrieval:read: "Queries prior experiments and funnel history to avoid re-running known-dead tests and to build on what worked."
+
+# ───────────────────────────────────────────────────────────────── memory
+memory:
+  kb_read:
+    - { wing: season,  hall: growth-experiments }
+    - { wing: season,  hall: marketing }
+    - { wing: season,  hall: decisions }
+    - { wing: private, hall: learnings }
+  kb_write:
+    - { wing: season,  hall: growth-experiments }
+    - { wing: private, hall: learnings }
+  capture_tags: ["growth-experiment", "ab-test", "funnel", "channel", "activation", "retention", "experiment-loss"]
+  retrieval_tags: ["growth-experiment", "ab-test", "funnel", "channel", "experiment-loss"]
+
+# ───────────────────────────────────────────────────────────────── schedule
+schedule:
+  activation: hybrid                 # heartbeat to watch running experiments + event-driven on assignment/significance
+  heartbeat:
+    beat_interval: PT1H              # hourly sweep of running experiments + funnel; not a tight loop
+    quiet_hours: []
+  cron_jobs:
+    - { job_key: experiment-watch,   cron: "0 * * * *",   task: sweep-running-experiments, priority: normal, heavy: false }
+    - { job_key: funnel-regression,  cron: "0 */4 * * *", task: scan-funnel-regressions,   priority: normal, heavy: false }
+    - { job_key: growth-rollup,      cron: "0 16 * * 1",  task: weekly-growth-rollup,      priority: low,    heavy: false }
+  silent_fail_checks:
+    - { check: "analytics telemetry reachable",   on_fail: degrade }          # cannot read KPIs; work from last-known, warn
+    - { check: "experiment registry readable",    on_fail: block-and-alert }  # cannot tell which tests are live; do not start new ones
+    - { check: "comms bus reachable",             on_fail: block-and-alert }  # cannot deliver read-outs or take assignments
+    - { check: "kanban board reachable",          on_fail: degrade }          # track experiments locally, reconcile on return
+    - { check: "mempalace available",             on_fail: continue }         # lose precedent lookup, keep running
+    - { check: "usage window status fresh",       on_fail: continue }         # assume warm windows, continue
+
+# ───────────────────────────────────────────────────────────────── comms
+comms:
+  subscribe:
+    - { topic: "team:{season}",                  role: both }    # receives experiment delegations, posts read-outs + status
+    - { topic: "marketing:{season}",             role: both }    # the marketing-growth working topic (CMO + content-marketer)
+    - { topic: "marketing:{season}:experiments", role: both }    # the experiment loop topic he owns
+    - { topic: "gate:{season}:ui-functionality", role: reader }  # reads UI findings on surfaces he runs experiments against
+    - { topic: "gate:{season}:qa",               role: reader }  # reads QA findings on activation / signup flows
+  publish_default_topic: "marketing:{season}:experiments"
+  can_delegate_to: []                                            # growth-marketer receives experiment work; does not delegate it out
+  can_be_delegated_by: ["chief-marketing-officer", "scrum-master", "technical-program-manager", "user-handler"]
+  sync_consult:
+    - { target: "data-scientist",            when: "an experiment result is close, the sample is small, the metric is novel, or the result is surprising", blocking: true }
+    - { target: "chief-marketing-officer",   when: "a winning variant only wins by drifting off-narrative, or spend needs to exceed the budget envelope", blocking: true }
+    - { target: "content-marketer",          when: "a winning experiment needs a content/cadence rollout", blocking: false }
+
+# ───────────────────────────────────────────────────────────────── subagents
+subagents:
+  can_spawn: false                  # Sean designs and reads out experiments himself; no helper fan-out by default
+  max_concurrent: 0
+  allowed_archetypes: []
+  spawn_model_class: null
+
+# ───────────────────────────────────────────────────────────────── guardrails
+guardrails:
+  autonomy_level: supervised        # designs, runs, and reads out experiments autonomously; spend/merge/deploy gated out
+  requires_human_approval_for: []   # he never merges, deploys, or approves spend, so no human-approval gates land on him
+  forbidden_actions:
+    - "Start an experiment without a written hypothesis, a primary metric, a guardrail, and a stop condition"
+    - "Call a result before the pre-registered sample size or runtime (no peeking, no early stops, no p-hacking)"
+    - "Publish a contested or surprising significance claim without a data-scientist statistical review"
+    - "Ship a winning variant that wins only by overpromising the product or drifting off the CMO's narrative"
+    - "Set or rewrite positioning (that is the CMO's; growth optimizes within it)"
+    - "Approve marketing or growth spend (escalate above the envelope to the CMO)"
+    - "Write production or implementation code (scope is experiment artifacts and analysis only)"
+    - "Merge any branch (merge authority belongs solely to the user-handler)"
+    - "Deploy or roll out a winning experiment (rollout goes through engineers / devops)"
+    - "Approve or override any review gate"
+    - "Delegate engineering work to other agents (growth-marketer receives, he does not route)"
+    - "Report a vanity metric as a result when the funnel tells a different story"
+    - "Use a capability scope not in the granted list"
+  escalation_target: "chief-marketing-officer"
+  spend_cap_usd: null               # bounded by the CMO's budget envelope + the orchestrator window policy, not a per-role cap
+
+# ───────────────────────────────────────────────────────────────── db_linkage
+db_linkage:
+  archetype_pk: growth-marketer     # FK target in the archetypes table
+  maps_to_tables:
+    - archetypes
+    - agent_configs
+    - agents            # the instance row binds this config to the Sean Ellis casting in a season
+    - agent_config_skills
+    - agent_config_connectors
+    - agent_config_capabilities
+    - agent_config_topics
+    - cron_jobs
+    - comms_subscription
+    - role_model_fit
+  # Seeds role_model_fit (model-intelligence track owns the table + final fit math).
+  # model ids are model_catalog.id values (provider-qualified).
+  role_model_fit_seed:
+    - { model_id: "anthropic:claude-sonnet-4-6",           fit_score: 0.91, note: "Balanced class: strong reasoning for experiment design + funnel analysis + honest read-outs at sustainable cost; recommended, fallback_rank 0." }
+    - { model_id: "copilot:gpt-5.4-mini",           fit_score: 0.80, note: "Off-Anthropic balanced fallback; preferred when the Anthropic window is pressured (free against the Copilot seat)." }
+    - { model_id: "copilot:gemini-3-flash-preview", fit_score: 0.74, note: "Diverse cheap fallback with vision; keeps experiment work moving when both prior options are pressured." }
+    - { model_id: "anthropic:claude-haiku-4-5",            fit_score: 0.68, note: "Final degrade path; keeps the growth loop alive on a low window without going silent." }

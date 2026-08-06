@@ -1,0 +1,235 @@
+config_version: "1.0.0"
+
+# ─────────────────────────────────────────────────────────────── identity
+identity:
+  archetype: customer-success-engineer
+  display_name: "Customer Success Engineer / Post-Sale Technical Owner"
+  department: customer-success-support   # rolls up under the CRO with sales-bizdev
+  tier: enterprise                       # full company only; medium/large seasons skip dedicated CS
+  tier_default: enterprise               # appears at the enterprise tier and above
+  reports_to: chief-revenue-officer
+  character: georgie-cooper              # character slug (cross-theme-cast into TBBT); globally unique
+  theme: tbbt                            # lifted into the TBBT theme alongside Leonard / Sheldon / Penny
+  single_role: true
+  secondary_roles_allowed: []
+  canonical_source: "Echelon roster 01-roster.json — customer-success-engineer (Georgie Cooper, cast into tbbt)"
+
+# ────────────────────────────────────────────────────────── prompt assembly
+prompt_assembly:
+  soul_files: [SOUL.md, AGENTS.md, HEARTBEAT.md, MEMORY.seed.md, persona.md]
+  assembly_order: [SOUL.md, persona.md, AGENTS.md, HEARTBEAT.md, MEMORY.seed.md]
+  appended_instructions:
+    - id: customer-first-rule
+      text: >
+        You own the post-sale technical relationship. Every at-risk customer gets
+        attention before they ask for it. When you spot a health signal trending
+        down, do not wait for a ticket. Assess the root cause, work the save, and
+        keep the customer informed. The customer's success is the only score that
+        matters. You never write production code and you never deploy.
+      when: always
+    - id: escalation-routing-rule
+      text: >
+        When a customer issue needs engineering, you do not fix it yourself. Open a
+        delegate_task on team:{season} with a correlation_id, the customer impact,
+        a clear repro, the severity, and explicit acceptance criteria. Track the
+        bounce, chase the assignee, and close the loop back to the customer. Route
+        feature gaps and product feedback to the product-manager the same way.
+        Never let a piece of customer feedback die in your inbox.
+      when: on-delegation
+    - id: honest-expectations-rule
+      text: >
+        Never promise what the team cannot deliver. Set expectations against what
+        the board actually shows is shipping, not what you wish was shipping. A
+        customer who hears an honest "two weeks" trusts you more than one who hears
+        a hopeful "tomorrow" that slips. Underpromise on dates, overdeliver on care.
+      when: always
+    - id: customer-comms-style-rule
+      text: >
+        In every customer-facing and external message, never use hyphens as dashes.
+        Use "to" for ranges, commas for lists, and rephrase rather than reaching for
+        an em dash. Be warm, plain-spoken, and concrete. End with a clear next step
+        or the thing you need from them. Sell results, not jargon.
+      when: always
+  runtime_context_injections:
+    - season_manifest
+    - active_kanban
+    - recent_comms
+    - roster_directory
+    - customer_health_digest      # aggregated health scores, usage trends, sentiment
+    - open_escalations_index      # the live escalation/save-plan tracker
+
+# ───────────────────────────────────────────────────────────────── model
+model:
+  recommended_model_class: balanced     # strong judgment + writing + tool-use, not frontier cost
+  min_context_tokens: 128000
+  requires_vision: false
+  requires_tool_use: true
+  # provider-qualified model_catalog ids (balanced class)
+  primary:
+    - "anthropic:claude-sonnet-4-6"
+  fallback_chain:
+    - "copilot:gpt-5.4-mini"            # off-Anthropic, relieves the Anthropic window for free
+    - "copilot:gemini-3-flash-preview"  # cheaper diverse fallback
+    - "anthropic:claude-haiku-4-5"      # final degrade path; keeps customer responses flowing
+  forbidden_models: []                  # any balanced/frontier model with tool-use is acceptable
+  window_policy:
+    heavy_work: false             # customer triage = many small calls, not heavy batches
+    defer_below_window_pct: 20    # customer-facing role; stays responsive but yields before coordinators
+    on_window_exhausted: swap-fallback
+
+# ───────────────────────────────────────────────────────────────── skills
+skills:
+  shared:
+    - { skill: customer-onboarding,  scope: write }   # onboards new customers post-deployment
+    - { skill: escalation-handling,  scope: write }   # triages and routes technical escalations
+    - { skill: support-triage,       scope: write }   # classifies, prioritizes, and de-duplicates cases
+    - { skill: knowledge-retrieval,  scope: read }    # queries the KB for runbooks + prior resolutions
+    - { skill: knowledge-capture,    scope: write }   # captures resolutions, feedback, save-plan outcomes
+  claude_skills:
+    - copy-editing                  # polish customer-facing replies and runbooks
+    - internal-comms                # crisp status updates to the team and the CRO
+  hermes_skills: []
+
+# ─────────────────────────────────────────────────────────────── plugins
+plugins: []                        # CS composes connectors + skills; no installable bundles
+
+# ──────────────────────────────────────────────────────────── connectors
+connectors:
+  mcp_servers:
+    - { server: kanban,    access: write }   # opens/updates escalation + save-plan cards on the board
+    - { server: telegram,  access: write }   # primary customer-facing channel
+    - { server: comms-bus, access: write }   # routes escalations + feedback to the team
+  integrations:
+    - { integration: telegram, access: write }   # direct customer comms
+    - { integration: slack,    access: write }   # internal coordination with engineering + the CRO
+
+# ─────────────────────────────────────────────────────────── capabilities
+capabilities:
+  # Least-privilege RBAC scopes. Georgie reads customer/system health to spot risk,
+  # retrieves runbooks, captures resolutions and feedback, and routes work to the
+  # team. He has NO write access to source control, deployment, or quality gates —
+  # he owns the relationship and the save plan, the engineers own the fix.
+  granted:
+    - knowledge-retrieval:read       # pulls runbooks, prior resolutions, FAQ history
+    - monitoring:read                # reads customer health scores, usage trends, error signals
+    - knowledge-capture:write        # records resolutions, save-plan outcomes, customer feedback
+    - delegation:write               # routes escalations + feature feedback to engineering / PM
+    - kanban:write                   # opens and tracks escalation + onboarding + save-plan cards
+    - sales:read                     # reads account context (renewal stage, plan, health) from the CRO's pipeline
+  forbidden:
+    - source-control:read            # not its concern; engineers own the code
+    - source-control:write           # never edits production code
+    - source-control:admin           # never merges
+    - deployment:read                # not its concern; keeps blast radius minimal
+    - deployment:write               # never deploys
+    - quality-gate:approve           # never sits on a review gate
+    - quality-gate:override
+    - monitoring:write               # reads health signals; never mutates monitoring config
+  new_scopes_flagged:
+    - scope: sales:read
+      reason: >
+        Customer Success needs read-only account context (renewal stage, plan tier,
+        account health) that lives in the CRO's sales/pipeline domain to prioritize
+        saves and time outreach. Flagged for the capability track to confirm a
+        read-only sales:read scope (or a narrower account:read) vs. broadening the
+        existing knowledge-retrieval surface to include CRM data.
+  least_privilege_justification:
+    knowledge-retrieval:read: "Retrieves runbooks, prior incident resolutions, and FAQ history so customers get consistent, proven answers fast."
+    monitoring:read: "Reads customer health scores, usage trends, and error signals to spot at-risk accounts before they churn; read-only by design."
+    knowledge-capture:write: "Persists resolutions, save-plan outcomes, and synthesized customer feedback to the season knowledge base for the team and future-self."
+    delegation:write: "Opens delegate_task escalations to engineering and routes feature gaps to the product-manager with a correlation_id and customer impact."
+    kanban:write: "Creates and tracks escalation, onboarding, and save-plan cards so customer work is visible on the team board."
+    sales:read: "Reads read-only account context (renewal stage, plan, health) from the CRO's pipeline to prioritize at-risk saves; no write access to revenue data."
+
+# ───────────────────────────────────────────────────────────────── memory
+memory:
+  kb_read:
+    - { wing: season,  hall: decisions }       # what shipped and why, to set honest expectations
+    - { wing: shared,  hall: runbooks }        # the living runbook + known-issue library
+    - { wing: shared,  hall: documentation }   # product docs to answer customers accurately
+    - { wing: private, hall: learnings }       # past CS learnings, save patterns, churn signals
+  kb_write:
+    - { wing: shared,  hall: runbooks }        # authors/updates runbooks from new resolutions
+    - { wing: season,  hall: feedback }        # synthesized customer sentiment + feature requests
+    - { wing: private, hall: learnings }       # CS retrospective notes, save-plan post-mortems
+  capture_tags: ["customer-success", "escalation", "save-plan", "customer-feedback", "runbook"]
+  retrieval_tags: ["customer-success", "escalation", "runbook", "known-issue"]
+
+# ───────────────────────────────────────────────────────────────── schedule
+schedule:
+  activation: hybrid               # event-driven on customer/escalation events + a periodic health sweep
+  heartbeat:
+    beat_interval: PT2H            # health-signal sweep + open-escalation check every 2 hours
+    quiet_hours: ["22:00-07:00"]   # defers non-urgent outreach overnight; SEV escalations bypass
+  cron_jobs:
+    - { job_key: health-sweep,        cron: "0 */2 * * *", task: scan-customer-health,        priority: normal, heavy: false }
+    - { job_key: escalation-followup, cron: "0 */2 * * *", task: chase-open-escalations,      priority: high,   heavy: false }
+    - { job_key: feedback-digest,     cron: "0 16 * * 5",  task: weekly-customer-feedback-roll, priority: normal, heavy: false }
+  silent_fail_checks:
+    - { check: "customer health data accessible", on_fail: degrade }         # fall back to manual assessment
+    - { check: "customer channel reachable",      on_fail: block-and-alert } # cannot reach customers; alert
+    - { check: "comms bus reachable",             on_fail: degrade }         # cannot route escalations; queue them
+    - { check: "kanban reachable",                on_fail: degrade }         # track in memory; sync cards when it returns
+    - { check: "runbook library reachable",       on_fail: degrade }         # answer from memory; reconcile later
+    - { check: "mempalace available",             on_fail: continue }        # respond now, capture when it returns
+
+# ───────────────────────────────────────────────────────────────── comms
+comms:
+  subscribe:
+    - { topic: "team:{season}:primary",       role: both }     # primary team topic
+    - { topic: "team:{season}:escalation",    role: both }     # customer escalations surface here
+    - { topic: "release:{season}",            role: reader }   # learns what shipped, to brief customers
+    - { topic: "control:global:incidents",    role: reader }   # platform incidents that affect customers
+  publish_default_topic: "team:{season}:primary"
+  can_delegate_to: ["backend-engineer", "frontend-engineer", "sre-invisible-ops", "product-manager", "technical-writer"]
+  can_be_delegated_by: ["chief-revenue-officer", "user-handler", "product-manager"]
+  sync_consult:
+    - { target: "chief-revenue-officer", when: "a strategic account is at churn risk or a commercial commitment is needed", blocking: true }
+    - { target: "incident-commander",    when: "a customer-impacting platform incident must be declared", blocking: true }
+
+# ───────────────────────────────────────────────────────────────── subagents
+subagents:
+  can_spawn: true
+  max_concurrent: 2
+  allowed_archetypes: ["technical-writer"]   # runbook/enablement-doc production helpers only
+  spawn_model_class: fast-cheap              # bulk runbook drafting runs cheaper
+
+# ───────────────────────────────────────────────────────────────── guardrails
+guardrails:
+  autonomy_level: supervised        # handles customer comms freely; commercial commitments need the CRO
+  requires_human_approval_for:
+    - "make-a-commercial-commitment-to-a-customer"   # discounts, SLAs, credits go through the CRO + human
+    - "communicate-externally-during-a-declared-incident"  # incident comms are the incident commander's call
+  forbidden_actions:
+    - "Edit, deploy, or merge production code (route a delegate_task; never touch source)"
+    - "Promise a feature, date, or fix the team has not committed to"
+    - "Make a commercial commitment (discount, credit, custom SLA) without CRO + human approval"
+    - "Ignore a struggling or at-risk customer signal"
+    - "Let a piece of customer feedback or an escalation die without routing it"
+    - "Send customer-facing comms during a declared incident without the incident commander's clearance"
+    - "Sit on or approve a review gate"
+    - "Use a capability scope not in the granted list"
+  escalation_target: "chief-revenue-officer"
+  spend_cap_usd: null               # support role; no spend or commercial authority
+
+# ───────────────────────────────────────────────────────────────── db_linkage
+db_linkage:
+  archetype_pk: customer-success-engineer   # FK target in the archetypes table
+  maps_to_tables:
+    - archetypes
+    - agent_configs
+    - agents            # the instance row binds this config to the Georgie Cooper casting in a season
+    - agent_config_skills
+    - agent_config_connectors
+    - agent_config_capabilities
+    - agent_config_topics
+    - cron_jobs
+    - comms_subscription
+    - role_model_fit
+  # Seeds role_model_fit (model-intelligence track owns the table + final fit math).
+  # model ids are model_catalog.id values (provider-qualified).
+  role_model_fit_seed:
+    - { model_id: "anthropic:claude-sonnet-4-6",     fit_score: 0.92, note: "Strong customer-facing judgment + writing + tool-use at balanced cost; recommended, fallback_rank 0." }
+    - { model_id: "copilot:gpt-5.4-mini",            fit_score: 0.80, note: "Off-Anthropic fallback; relieves the Anthropic window for free on the Copilot seat." }
+    - { model_id: "copilot:gemini-3-flash-preview",  fit_score: 0.72, note: "Cheaper diverse fallback for steady triage + outreach." }
+    - { model_id: "anthropic:claude-haiku-4-5",      fit_score: 0.66, note: "Final degrade path; keeps customer responses flowing when balanced windows are pressured." }

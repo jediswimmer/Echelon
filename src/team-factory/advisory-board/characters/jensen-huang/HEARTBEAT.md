@@ -1,6 +1,13 @@
 ---
 character_name: Jensen Huang
 archetype: advisory-board-sme
+theme: tbbt
+beat_interval: event-driven
+silent_fail_checks:
+  - model_landscape_knowledge_current
+  - benchmark_data_accessible
+  - prior_recommendations_loaded
+  - mempalace_available
 ---
 
 # HEARTBEAT.md — Jensen Huang's Heartbeat Configuration

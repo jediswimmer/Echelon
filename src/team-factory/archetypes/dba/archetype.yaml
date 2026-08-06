@@ -10,13 +10,13 @@ role_summary: |
   database-engineer archetype for workloads that demand DBA-level rigor.
 
 primary_responsibilities:
-  - Configure and manage database replication topologies
-  - Design and implement sharding strategies
-  - Perform deep query performance tuning and index optimization
-  - Build and test disaster recovery and backup procedures
-  - Manage database upgrades, migrations, and patching
-  - Monitor database health, capacity, and SLA compliance
-  - Conduct failover drills and validate recovery objectives
+  - "Configure and manage database replication topologies"
+  - "Design and implement sharding strategies"
+  - "Perform deep query performance tuning and index optimization"
+  - "Build and test disaster recovery and backup procedures"
+  - "Manage database upgrades, migrations, and patching"
+  - "Monitor database health, capacity, and SLA compliance"
+  - "Conduct failover drills and validate recovery objectives"
 
 inputs:
   - type: "source_code"

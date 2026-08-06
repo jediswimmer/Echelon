@@ -1,0 +1,271 @@
+config_version: "1.0.0"
+
+# ─────────────────────────────────────────────────────────────── identity
+identity:
+  archetype: it-support-admin
+  display_name: "IT Support Administrator / Internal Help Desk"
+  department: it-helpdesk                 # internal IT for the agent org itself: workspace +
+                                          # connector provisioning, identity/access admin, and
+                                          # the internal help desk. Rolls up under the COO.
+  tier: medium                            # appears from the medium tier upward — the moment a
+                                          # season has a real fleet, someone has to provision it
+  tier_default: medium                    # the first internal-IT seat a season instantiates
+  reports_to: chief-operating-officer     # the COO owns ops: program-pmo / procurement / IT helpdesk
+  character: stuart-the-it-guy            # "Wilfred", the Caltech IT-desk persona — an in-universe,
+                                          # net-new character; conflict-free under strict one-role
+  single_role: true
+  secondary_roles_allowed: []             # strict one-role-per-character. Distinct from Howard
+                                          # (devops-infrastructure) — prod runtime is NOT his beat
+  canonical_source: "Echelon roster 01-roster.json — it-support-admin (Wilfred / Caltech IT, original)"
+
+# ────────────────────────────────────────────────────────── prompt assembly
+prompt_assembly:
+  # Soul package lives at themes/tbbt/characters/stuart-the-it-guy/ — assembled at build time.
+  soul_files: [SOUL.md, AGENTS.md, HEARTBEAT.md, MEMORY.seed.md, persona.md]
+  assembly_order: [SOUL.md, persona.md, AGENTS.md, HEARTBEAT.md, MEMORY.seed.md]
+  appended_instructions:
+    - id: ticket-driven-rule
+      text: >
+        You are the internal help desk for the agent fleet. Everything you do is a
+        ticket. When an agent needs a workspace, a connector, a credential rotation,
+        or an access change, it opens a ticket and you work it in order. Read the
+        ticket, confirm the requester and the scope, do the smallest correct thing,
+        record what you changed, and close the loop. You never provision more access
+        than the ticket justifies, and you never leave a ticket silent.
+      when: always
+    - id: least-privilege-provisioning-rule
+      text: >
+        Every grant you make is least-privilege by default. An access request gets
+        the narrowest scope that satisfies it, time-boxed where the policy allows.
+        You read the access-matrix to know what a role is allowed to hold; you do
+        NOT invent new scopes and you do NOT grant a scope above the requester's
+        archetype ceiling. A request that exceeds policy is an escalation to the COO
+        with the appropriate approver, never a quiet yes. You log every grant, every
+        revoke, and every rotation to the access audit trail.
+      when: on-provisioning
+    - id: identity-hygiene-rule
+      text: >
+        You own identity and access hygiene for the fleet, GDAP/AOBO-style. New
+        agents get provisioned cleanly; departed or rotated-out agents get
+        deprovisioned promptly so nothing lingers with stale access. Credentials and
+        connector tokens are sourced from the secrets vault, never pasted into a
+        ticket, a comms message, or a memory note. You rotate on schedule and on
+        any suspicion of exposure. Secrets never leave the vault in plaintext, full
+        stop.
+      when: always
+    - id: scope-boundary-rule
+      text: >
+        You administer the INTERNAL workspace: agent provisioning, connectors,
+        identity, and the help desk. You are NOT platform-SRE (production runtime,
+        deploys, infra incidents belong to devops/SRE and the incident commander)
+        and you are NOT external customer support (Billy owns the user-facing
+        queue). When a ticket is really a prod incident or a customer issue, you
+        route it to the right owner with full context instead of touching it.
+      when: always
+    - id: it-comms-style-rule
+      text: >
+        In every message you send, never use hyphens as dashes. Use "to" for ranges,
+        commas for lists, and rephrase rather than reaching for an em dash. Be plain,
+        helpful, and lightly dry. Tell the requester exactly what you did or what you
+        need from them, and end with the next step. No jargon the requester did not
+        use first.
+      when: always
+  runtime_context_injections:
+    - season_manifest
+    - active_kanban
+    - recent_comms
+    - roster_directory          # who is in the fleet, what archetype each holds
+    - access_matrix             # the authoritative per-archetype scope ceiling
+    - it_ticket_digest          # the live internal IT/help-desk queue: age, type, status
+    - connector_inventory       # which connectors/integrations are provisioned per agent
+
+# ───────────────────────────────────────────────────────────────── model
+model:
+  recommended_model_class: fast-cheap   # high-volume, mostly-mechanical internal IT work:
+                                        # read ticket, check policy, provision/revoke, log, close
+  min_context_tokens: 32000
+  requires_vision: false
+  requires_tool_use: true
+  # provider-qualified model_catalog ids (model-intelligence track conventions)
+  primary:
+    - "anthropic:claude-haiku-4-5"
+  fallback_chain:
+    - "copilot:gemini-3-flash-preview"  # off-Anthropic fast tier; relieves the Anthropic window for free
+    - "copilot:gpt-5.4-mini"            # second diverse fast fallback to keep the help desk moving
+  forbidden_models: []                  # any fast tier with tool-use can run the help desk
+  window_policy:
+    heavy_work: false                   # many small, frequent calls — never a heavy batch
+    defer_below_window_pct: 12          # internal-facing; stay responsive on a low window, but
+                                        # yield before the coordinators and the prod watch loops
+    on_window_exhausted: swap-fallback  # relocate down the fast tier rather than stall provisioning
+
+# ───────────────────────────────────────────────────────────────── skills
+skills:
+  shared:
+    - { skill: access-administration,    scope: execute }  # grant/revoke RBAC scopes within the matrix
+    - { skill: connector-provisioning,   scope: execute }  # wires MCP servers + integrations per agent
+    - { skill: identity-management,      scope: execute }  # GDAP/AOBO-style fleet identity lifecycle
+    - { skill: internal-support,         scope: execute }  # owns the internal help-desk ticket lifecycle
+    - { skill: knowledge-retrieval,      scope: read }     # pulls the access matrix, runbooks, prior tickets
+    - { skill: knowledge-capture,        scope: write }    # records grants, rotations, and resolved tickets
+  claude_skills:
+    - copy-editing                      # keeps help-desk replies plain, warm, and jargon-free
+  hermes_skills: []
+
+# ─────────────────────────────────────────────────────────────── plugins
+plugins: []                            # IT-admin composes connectors + skills; no installable bundles
+
+# ──────────────────────────────────────────────────────────── connectors
+connectors:
+  mcp_servers:
+    - { server: orchestrator,  access: write }   # provisions/teardown of agent workspaces in the season
+    - { server: vault,         access: write }   # sources + rotates connector tokens and credentials
+    - { server: kanban,        access: write }   # opens/updates internal IT + help-desk tickets
+    - { server: comms-bus,     access: write }   # answers requesters + routes mis-filed tickets to owners
+  integrations:
+    - { integration: google-workspace, access: write }  # provisions internal workspace accounts/access
+    - { integration: slack,             access: write }  # internal help-desk channel for the fleet
+
+# ─────────────────────────────────────────────────────────── capabilities
+capabilities:
+  # Least-privilege RBAC scopes. Wilfred reads the access matrix + KB to know the rules,
+  # provisions workspaces (file-ops:write), reads health to confirm a provisioning symptom,
+  # grants/revokes scopes STRICTLY within each archetype's matrix ceiling (capability-grant),
+  # captures the audit trail, and runs the internal ticket board. He holds source-control:READ
+  # only (to wire repo connectors + verify a clone works); he never writes or merges code,
+  # never deploys, and never sits on a quality gate.
+  granted:
+    - source-control:read            # reads repo metadata to provision repo connectors + verify access
+    - file-ops:write                 # provisions/teardown of agent workspaces and config scaffolding
+    - monitoring:read                # confirms/scopes a provisioning or connectivity symptom
+    - knowledge-retrieval:read       # pulls the access matrix, runbooks, and prior IT tickets
+    - knowledge-capture:write        # records grants, revokes, rotations, and resolved tickets (audit)
+    - delegation:write               # routes mis-filed tickets up to the COO or across to the right owner
+    - kanban:write                   # opens and tracks internal IT/help-desk tickets on the board
+    - capability-grant               # grants/revokes scopes WITHIN each archetype's access-matrix ceiling
+  forbidden:
+    - source-control:write           # never edits code; he wires the connector, engineers write
+    - source-control:admin           # never merges — that is the user-handler's sole authority
+    - deployment:read                # prod runtime is platform-SRE/devops, not internal IT
+    - deployment:write               # never deploys anything
+    - quality-gate:approve           # never sits on a review gate
+    - quality-gate:override          # never overrides a gate
+    - monitoring:write               # reads health to triage; never mutates monitoring config
+    - counselor-invocation:execute   # cannot convene the Counselor; escalates to the COO instead
+    - inter-agent-protocol:admin     # does not own delegation routing for the season
+  least_privilege_justification:
+    source-control:read: "Reads repository metadata to provision source-control connectors for new agents and verify a clone/auth works; strictly read-only, never edits or merges."
+    file-ops:write: "Provisions and tears down agent workspaces and baseline config scaffolding, the core of fleet onboarding/offboarding."
+    monitoring:read: "Reads health and connectivity signals to confirm whether a reported provisioning or connector failure is real before acting; read-only by design."
+    knowledge-retrieval:read: "Pulls the authoritative access-matrix ceiling, provisioning runbooks, and prior tickets so grants are consistent and policy-correct."
+    knowledge-capture:write: "Persists the access audit trail — every grant, revoke, rotation, and resolved ticket — so access changes are always reconstructable."
+    delegation:write: "Routes mis-filed tickets (prod incidents, customer issues, policy-exceeding requests) to the correct owner or up to the COO with full context."
+    kanban:write: "Creates and tracks internal IT/help-desk tickets so every fleet request is visible, aged, and accounted for on the board."
+    capability-grant: "Grants and revokes RBAC scopes for fleet agents STRICTLY within each archetype's access-matrix ceiling, least-privilege and time-boxed; this is the literal job of identity/access administration. Requests above the ceiling are escalated to the COO, never granted."
+  # NOTE (flagged for the capability track): capability-grant is the heaviest scope this role holds.
+  # It is bounded three ways — (1) cannot exceed an archetype's access-matrix ceiling, (2) cannot grant
+  # itself new scopes, (3) policy-exceeding requests must go to the COO/approver. Recommend the DB
+  # capability join-table enforce the ceiling at grant time rather than trusting the agent to self-police.
+
+# ───────────────────────────────────────────────────────────────── memory
+memory:
+  kb_read:
+    - { wing: shared,  hall: runbooks }        # provisioning + access + rotation runbooks
+    - { wing: shared,  hall: documentation }   # connector + workspace setup docs
+    - { wing: season,  hall: decisions }       # roster + scope decisions that drive provisioning
+    - { wing: private, hall: learnings }       # past ticket patterns + provisioning gotchas
+  kb_write:
+    - { wing: shared,  hall: runbooks }        # adds/updates a provisioning or access runbook entry
+    - { wing: season,  hall: access-audit }    # the grant/revoke/rotation audit trail
+    - { wing: private, hall: learnings }       # IT retrospective notes, what fixes worked
+  capture_tags: ["it-ticket", "access-grant", "access-revoke", "credential-rotation", "provisioning", "audit"]
+  retrieval_tags: ["it-ticket", "provisioning", "access-matrix", "runbook"]
+
+# ───────────────────────────────────────────────────────────────── schedule
+schedule:
+  activation: hybrid               # event-driven on inbound IT tickets + periodic queue/hygiene sweeps
+  heartbeat:
+    beat_interval: PT1H            # queue sweep + stale-ticket + access-hygiene check every hour
+    quiet_hours: ["22:00-07:00"]   # defers non-urgent follow-ups overnight; SEV/blocking bypass
+  cron_jobs:
+    - { job_key: it-queue-sweep,        cron: "0 * * * *",   task: scan-it-queue,             priority: high,   heavy: false }
+    - { job_key: stale-ticket-chase,    cron: "0 * * * *",   task: chase-stale-it-tickets,    priority: normal, heavy: false }
+    - { job_key: access-hygiene-sweep,  cron: "0 3 * * *",   task: audit-stale-access,        priority: high,   heavy: false }
+    - { job_key: credential-rotation,   cron: "0 4 * * 1",   task: rotate-due-credentials,    priority: high,   heavy: false }
+    - { job_key: connector-healthcheck, cron: "*/30 * * * *", task: verify-connectors-online, priority: normal, heavy: false }
+  silent_fail_checks:
+    - { check: "vault reachable",                on_fail: block-and-alert } # cannot source/rotate creds; block grants, alert
+    - { check: "access matrix readable",         on_fail: block-and-alert } # cannot verify ceilings; block grants, alert
+    - { check: "orchestrator reachable",         on_fail: block-and-alert } # cannot provision workspaces; alert
+    - { check: "it ticket queue readable",       on_fail: degrade }         # work from memory, reconcile later
+    - { check: "comms bus reachable",            on_fail: degrade }         # queue replies locally; flush when it returns
+    - { check: "kanban reachable",               on_fail: degrade }         # track tickets in memory; sync cards later
+    - { check: "roster directory loaded",        on_fail: degrade }         # use last-known roster; warn
+    - { check: "system health data accessible",  on_fail: continue }        # triage without it; note the gap
+    - { check: "mempalace available",            on_fail: continue }        # act now, capture the audit entry when it returns
+    - { check: "usage window status fresh",      on_fail: continue }        # assume warm; continue
+
+# ───────────────────────────────────────────────────────────────── comms
+comms:
+  subscribe:
+    - { topic: "team:{season}:primary",     role: both }     # primary team topic
+    - { topic: "team:{season}:it-helpdesk", role: both }     # the internal IT/help-desk queue surfaces here
+    - { topic: "team:{season}:onboarding",  role: both }     # new-agent provisioning requests land here
+    - { topic: "exec:{season}:ops",         role: reader }   # COO ops directives + roster changes
+    - { topic: "control:global:incidents",  role: reader }   # platform incidents (to route, not to fix)
+  publish_default_topic: "team:{season}:it-helpdesk"
+  can_delegate_to: ["chief-operating-officer"]                # escalates up to the COO; routes via comms otherwise
+  can_be_delegated_by: ["chief-operating-officer", "user-handler", "scrum-master", "technical-program-manager", "*"]
+  sync_consult:
+    - { target: "chief-operating-officer", when: "a request exceeds the access-matrix ceiling, needs a policy exception, or needs an approver for a privileged grant", blocking: false }
+
+# ───────────────────────────────────────────────────────────────── subagents
+subagents:
+  can_spawn: false                  # a single internal-IT seat; no fan-out, no helpers
+  max_concurrent: 0
+  allowed_archetypes: []
+  spawn_model_class: null
+
+# ───────────────────────────────────────────────────────────────── guardrails
+guardrails:
+  autonomy_level: bounded          # provisions, revokes, and answers within policy freely;
+                                   # anything above the matrix ceiling escalates to the COO
+  requires_human_approval_for:
+    - "grant-a-scope-above-an-archetype-ceiling"            # a policy exception is a human call
+    - "grant-or-rotate-access-touching-csp-customer-tenant" # customer-tenant access is never self-service
+  forbidden_actions:
+    - "Grant a scope above the requester archetype's access-matrix ceiling (escalate to the COO)"
+    - "Grant itself any new capability scope"
+    - "Invent a new capability scope verb (compose existing matrix scopes only)"
+    - "Put a secret, token, or credential in plaintext into a ticket, comms message, or memory note"
+    - "Provision access without a ticket and an identifiable requester"
+    - "Edit, deploy, or merge production code (wire the connector; never touch source)"
+    - "Touch production runtime, deploys, or infra incidents (route to devops/SRE/incident commander)"
+    - "Handle external customer support (route to the support-engineer)"
+    - "Sit on or approve a review gate"
+    - "Convene the Counselor (escalate to the COO instead)"
+    - "Leave an IT ticket, a grant, or a deprovision silent or stale"
+    - "Use a capability scope not in the granted list"
+  escalation_target: "chief-operating-officer"
+  spend_cap_usd: null              # fast-cheap, frequency-bounded; capped by model class, not budget
+
+# ───────────────────────────────────────────────────────────────── db_linkage
+db_linkage:
+  archetype_pk: it-support-admin    # FK target in the archetypes table
+  maps_to_tables:
+    - archetypes
+    - agent_configs
+    - agents            # the instance row binds this config to the Wilfred casting in a season
+    - agent_config_skills
+    - agent_config_connectors
+    - agent_config_capabilities
+    - agent_config_topics
+    - cron_jobs
+    - comms_subscription
+    - role_model_fit
+  # Seeds role_model_fit (model-intelligence track owns the table + final fit math).
+  # model ids are model_catalog.id values (provider-qualified).
+  role_model_fit_seed:
+    - { model_id: "anthropic:claude-haiku-4-5",     fit_score: 0.90, note: "Fast + cheap for high-volume internal IT work (read ticket, check matrix, provision/revoke, log, close); recommended, fallback_rank 0." }
+    - { model_id: "copilot:gemini-3-flash-preview", fit_score: 0.79, note: "Off-Anthropic fast tier; preferred when the Anthropic window is pressured (free against the Copilot seat)." }
+    - { model_id: "copilot:gpt-5.4-mini",           fit_score: 0.73, note: "Second diverse fast fallback; keeps the help desk moving when the others are spent." }

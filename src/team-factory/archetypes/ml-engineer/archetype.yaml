@@ -9,13 +9,13 @@ role_summary: |
   ML components into production systems.
 
 primary_responsibilities:
-  - Design and implement feature engineering pipelines
-  - Train, evaluate, and tune ML models
-  - Build reproducible ML training pipelines
-  - Integrate trained models into production services
-  - Implement model validation and performance benchmarks
-  - Manage experiment tracking and model versioning
-  - Optimize model inference latency and resource usage
+  - "Design and implement feature engineering pipelines"
+  - "Train, evaluate, and tune ML models"
+  - "Build reproducible ML training pipelines"
+  - "Integrate trained models into production services"
+  - "Implement model validation and performance benchmarks"
+  - "Manage experiment tracking and model versioning"
+  - "Optimize model inference latency and resource usage"
 
 inputs:
   - type: "source_code"

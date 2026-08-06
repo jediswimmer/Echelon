@@ -1,6 +1,13 @@
 ---
 character_name: Steve Jobs
 archetype: advisory-board-sme
+theme: tbbt
+beat_interval: event-driven
+silent_fail_checks:
+  - escalation_brief_complete
+  - relevant_sme_context_available
+  - decision_history_accessible
+  - mempalace_available
 ---
 
 # HEARTBEAT.md — Steve Jobs's Heartbeat Configuration

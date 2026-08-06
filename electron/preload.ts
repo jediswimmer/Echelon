@@ -455,8 +455,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // Kanban Board
   kanban: {
-    list: () =>
-      ipcRenderer.invoke('kanban:list'),
+    list: (opts?: { seasonId?: string; scope?: 'all' | 'season' | 'global' }) =>
+      ipcRenderer.invoke('kanban:list', opts),
     get: (id: string) =>
       ipcRenderer.invoke('kanban:get', id),
     create: (params: {
@@ -467,6 +467,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
       requiredSkills?: string[];
       priority?: 'low' | 'medium' | 'high';
       labels?: string[];
+      seasonId?: string;
+      issueType?: 'epic' | 'story' | 'task';
+      parentId?: string;
+      jiraKey?: string;
     }) =>
       ipcRenderer.invoke('kanban:create', params),
     update: (params: {
@@ -488,6 +492,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('kanban:reorder', params),
     generate: (params: { prompt: string; availableProjects: Array<{ path: string; name: string }> }) =>
       ipcRenderer.invoke('kanban:generate', params),
+    // Comment threads
+    commentList: (taskId: string) =>
+      ipcRenderer.invoke('kanban:comment-list', taskId),
+    commentAdd: (taskId: string, comment: { author: string; authorName?: string; body: string; source?: 'local' | 'jira' }) =>
+      ipcRenderer.invoke('kanban:comment-add', { taskId, comment }),
+    commentDelete: (taskId: string, commentId: string) =>
+      ipcRenderer.invoke('kanban:comment-delete', { taskId, commentId }),
     // Event listeners
     onTaskCreated: (callback: (task: unknown) => void) => {
       const listener = (_: unknown, task: unknown) => callback(task);
@@ -714,14 +725,152 @@ contextBridge.exposeInMainWorld('electronAPI', {
   season: {
     list: () => ipcRenderer.invoke('season:list'),
     get: (id: string) => ipcRenderer.invoke('season:get', id),
-    spawn: (config: any) => ipcRenderer.invoke('season:spawn', config),
+    spawn: (config: {
+      id: string;
+      name: string;
+      theme: string;
+      prd?: string;
+      /** Season permission posture: 'normal' | 'auto' | 'bypass'. */
+      permissionMode?: 'normal' | 'auto' | 'bypass';
+      /** Optional explicit roster; omitted/empty ⇒ auto-compose from `prd`. */
+      rosterEntries?: Array<{ archetype: string; character: string; capabilities: string[] }>;
+      /**
+       * Optional source-control linkage. `local` (or omitted) ⇒ empty git init;
+       * `github`/`azure-devops` with a `repoUrl` ⇒ clone the repo as the workspace;
+       * `local-clone` with a `localPath` ⇒ validate + use an existing local clone
+       * in-place as the workspace (no re-clone).
+       */
+      sourceControl?: { type: 'local' | 'github' | 'azure-devops' | 'local-clone'; repoUrl?: string; localPath?: string };
+      /** Optional linked Jira project key (e.g. "SD") — captured + displayed only. */
+      jiraProjectKey?: string;
+      /**
+       * Intake mode: `greenfield` (a brand-new project, the default) or
+       * `brownfield` (an existing, in-flight project found in the linked repo).
+       * Brownfield seasons bootstrap their context from the repo on spawn.
+       */
+      intake?: 'greenfield' | 'brownfield';
+    }) => ipcRenderer.invoke('season:spawn', config),
     archive: (id: string) => ipcRenderer.invoke('season:archive', id),
     restore: (id: string) => ipcRenderer.invoke('season:restore', id),
     characters: (seasonId: string) => ipcRenderer.invoke('season:characters', seasonId),
+    // Direction request (17c): answer the "needs your direction" prompt.
+    direction: {
+      answer: (seasonId: string, payload: { answer?: string; chosenOptionId?: string }) =>
+        ipcRenderer.invoke('season:direction:answer', seasonId, payload),
+    },
+    // Two-way Jira sync (17d): import the linked project's issues onto the
+    // season board, and query whether Jira is enabled + linked.
+    jira: {
+      import: (seasonId: string) => ipcRenderer.invoke('season:jira:import', seasonId),
+      status: (seasonId: string) => ipcRenderer.invoke('season:jira:status', seasonId),
+    },
+    // Branch-per-Epic + PR-on-completion (17e): manually open the team-factory
+    // PR for a completed epic/story from the board.
+    epic: {
+      openPR: (seasonId: string, epicTaskId: string) =>
+        ipcRenderer.invoke('season:epic:open-pr', seasonId, epicTaskId),
+    },
+    // Season mode (#22a): autonomous vs collaborative operating mode.
+    mode: {
+      set: (seasonId: string, mode: 'autonomous' | 'collaborative') =>
+        ipcRenderer.invoke('season:mode:set', seasonId, mode),
+    },
+    // Human hybrid dev team (#22a): map real GitHub/Jira users onto roles, and
+    // fetch the candidate humans to assign.
+    humanTeam: {
+      set: (
+        seasonId: string,
+        seats: Array<{
+          id: string;
+          archetypeId: string;
+          roleName?: string;
+          source: 'github' | 'jira' | 'manual';
+          handle: string;
+          displayName?: string;
+        }>,
+      ) => ipcRenderer.invoke('season:humanteam:set', seasonId, seats),
+      candidates: (seasonId: string) =>
+        ipcRenderer.invoke('season:humanteam:candidates', seasonId),
+    },
+    // Ceremony calendar (#22b): per-season standups/grooming/reviews/meetings,
+    // each with a cadence + time + optional meeting link. Add/update/remove only;
+    // the next-occurrence + Add-to-Google-Calendar URL are computed in the UI.
+    ceremonies: {
+      add: (
+        seasonId: string,
+        input: {
+          kind?: 'standup' | 'grooming' | 'sprint-end' | 'team-meeting' | 'custom';
+          title?: string;
+          cadence?: 'daily' | 'weekly' | 'biweekly' | 'once';
+          dayOfWeek?: number;
+          time?: string;
+          startDate?: string;
+          durationMins?: number;
+          meetingLink?: string;
+          notes?: string;
+        },
+      ) => ipcRenderer.invoke('season:ceremony:add', seasonId, input),
+      update: (
+        seasonId: string,
+        ceremonyId: string,
+        patch: {
+          kind?: 'standup' | 'grooming' | 'sprint-end' | 'team-meeting' | 'custom';
+          title?: string;
+          cadence?: 'daily' | 'weekly' | 'biweekly' | 'once';
+          dayOfWeek?: number;
+          time?: string;
+          startDate?: string;
+          durationMins?: number;
+          meetingLink?: string;
+          notes?: string;
+        },
+      ) => ipcRenderer.invoke('season:ceremony:update', seasonId, ceremonyId, patch),
+      remove: (seasonId: string, ceremonyId: string) =>
+        ipcRenderer.invoke('season:ceremony:remove', seasonId, ceremonyId),
+    },
+    // Primary-contact agent + meeting transcript absorption (#22c): designate the
+    // agent that attends + summarizes meetings, absorb a user-provided transcript
+    // into a summary + action-item tickets + follow-up questions, and resolve a
+    // surfaced follow-up. Live auto-attendance (joining the call) is a future
+    // capability — this works from a transcript you provide.
+    meeting: {
+      setPrimaryContact: (seasonId: string, agentId: string) =>
+        ipcRenderer.invoke('season:primaryContact:set', seasonId, agentId),
+      absorb: (seasonId: string, payload: { ceremonyId?: string; transcript: string }) =>
+        ipcRenderer.invoke('season:meeting:absorb', seasonId, payload),
+      resolveFollowUp: (seasonId: string, followUpId: string) =>
+        ipcRenderer.invoke('season:meeting:resolveFollowUp', seasonId, followUpId),
+    },
+    // On-demand / ad-hoc team expansion (#19): list the archetype catalog for the
+    // manual-add picker, manually add a teammate (auto-approved), or approve/decline
+    // a pending request a running agent surfaced.
+    archetypes: {
+      list: () => ipcRenderer.invoke('season:archetypes:list'),
+    },
+    expansion: {
+      add: (seasonId: string, input: { archetype: string; character?: string; reason?: string }) =>
+        ipcRenderer.invoke('season:expansion:add', seasonId, input),
+      approve: (seasonId: string, requestId: string) =>
+        ipcRenderer.invoke('season:expansion:approve', seasonId, requestId),
+      decline: (seasonId: string, requestId: string) =>
+        ipcRenderer.invoke('season:expansion:decline', seasonId, requestId),
+    },
     onUpdated: (callback: (season: any) => void) => {
       const listener = (_: unknown, season: any) => callback(season);
       ipcRenderer.on('season:updated', listener);
       return () => ipcRenderer.removeListener('season:updated', listener);
+    },
+    // Conversation / crosstalk log (17b).
+    conversation: {
+      list: (
+        seasonId: string,
+        opts?: { kind?: string; agentId?: string; limit?: number; sinceTs?: string },
+      ) => ipcRenderer.invoke('season:conversation:list', seasonId, opts),
+      onAppended: (cb: (entry: any) => void) => {
+        const listener = (_: unknown, entry: any) => cb(entry);
+        ipcRenderer.on('season:conversation:appended', listener);
+        return () => ipcRenderer.removeListener('season:conversation:appended', listener);
+      },
     },
   },
 

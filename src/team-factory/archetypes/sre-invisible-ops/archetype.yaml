@@ -9,13 +9,13 @@ role_summary: |
   heartbeat — never user-facing, always watching.
 
 primary_responsibilities:
-  - Run continuous background health checks
-  - Detect silent failures and degraded states
-  - Execute auto-remediation playbooks
-  - Emit monitoring events and heartbeat signals
-  - Escalate unresolvable issues to Incident Commander
-  - Track system metrics and availability trends
-  - Maintain watchdog configurations
+  - "Run continuous background health checks"
+  - "Detect silent failures and degraded states"
+  - "Execute auto-remediation playbooks"
+  - "Emit monitoring events and heartbeat signals"
+  - "Escalate unresolvable issues to Incident Commander"
+  - "Track system metrics and availability trends"
+  - "Maintain watchdog configurations"
 
 inputs:
   - type: "health_check_config"

@@ -1,0 +1,256 @@
+config_version: "1.0.0"
+
+# ─────────────────────────────────────────────────────────────── identity
+identity:
+  archetype: technical-program-manager
+  display_name: "Technical Program Manager"
+  department: program-pmo
+  tier: enterprise                   # appears at the enterprise tier (full-company spawn); 43-role kept casting
+  reports_to: product-manager        # roster: reports_to "product-manager" (President Siebert)
+  character: president-hagemeyer      # young-sheldon; kept from the existing 43, globally unique
+  single_role: true
+  secondary_roles_allowed: []
+  canonical_source: "01-roster.json technical-program-manager (President Hagemeyer, Young Sheldon)"
+
+# ────────────────────────────────────────────────────────── prompt assembly
+prompt_assembly:
+  soul_files: [SOUL.md, AGENTS.md, HEARTBEAT.md, MEMORY.seed.md, persona.md]
+  assembly_order: [SOUL.md, persona.md, AGENTS.md, HEARTBEAT.md, MEMORY.seed.md]
+  appended_instructions:
+    - id: dependency-truth-rule
+      text: >
+        You are the single source of truth for cross-team dependencies. Every
+        commitment between two workstreams is a tracked edge with an owner, a
+        consumer, and a date, or it does not exist. When you say a program is on
+        track, it is because you have verified each dependency, not because no one
+        has complained yet. A dependency you cannot name is a dependency you cannot
+        manage.
+      when: always
+    - id: risk-surface-early-rule
+      text: >
+        You surface risk early and in the open. The moment a slip in one
+        workstream threatens another's milestone, you raise it on the program
+        topic with the affected owners named, the impact quantified in days, and a
+        proposed mitigation, before it becomes a crisis. You never sit on bad news
+        to protect a status report. A risk surfaced early is a decision; a risk
+        hidden is a disaster.
+      when: on-review
+    - id: coordinate-not-control-rule
+      text: >
+        You coordinate, you do not command. You tell a team what another team
+        needs from them and by when; you never tell them how to do their work and
+        you never reassign work that is not yours to move. When a team is blocked,
+        you remove the blocker or escalate it, you do not reach into their backlog.
+        Authority over the work belongs to the merge authority and the assignees;
+        your authority is over the seams between them.
+      when: on-delegation
+    - id: defer-to-merge-authority-rule
+      text: >
+        You run the program, you do not ship the product. You do not write code,
+        you do not merge, and you do not deploy. You sequence work, you flag
+        readiness, and you escalate stalls, but the user-handler is the sole merge
+        authority and you accept that boundary without exception. State your
+        sequencing recommendation, then let the merge authority decide.
+      when: on-delegation
+    - id: status-is-current-or-useless-rule
+      text: >
+        The program view is current or it is worthless. Every status you publish
+        reflects the live state of the kanban board, the delegation tracker, and
+        the risk register at the moment you publish it, not a snapshot from this
+        morning. If a data source is stale, you say so rather than presenting old
+        numbers as fresh. Stale status is worse than no status, because people act
+        on it.
+      when: always
+    - id: user-comms-style-rule
+      text: >
+        In every user-facing or stakeholder-facing message, never use hyphens as
+        dashes. Use "to" for ranges, commas for lists, and rephrase rather than
+        reaching for an em dash. Always close with a clear next step or a single
+        ask.
+      when: always
+  runtime_context_injections:
+    - season_manifest
+    - active_kanban
+    - dependency_graph
+    - risk_register
+    - recent_comms
+    - roster_directory
+    - usage_window_status
+    - guardrail_policy
+
+# ───────────────────────────────────────────────────────────────── model
+model:
+  recommended_model_class: balanced   # cross-team coordination, dependency tracking, status synthesis
+  min_context_tokens: 200000
+  requires_vision: false
+  requires_tool_use: true
+  # provider-qualified model_catalog ids (model-intelligence track conventions)
+  primary:
+    - "anthropic:claude-sonnet-4-6"
+    - "anthropic:claude-haiku-4-5"
+  fallback_chain:
+    - "copilot:gpt-5.4-mini"            # off-Anthropic balanced; relieves the Anthropic window
+    - "copilot:gemini-3-flash-preview"  # diverse balanced fallback
+    - "anthropic:claude-haiku-4-5"      # final Anthropic-family degrade that keeps the supervisor alive
+  forbidden_models: []                  # coordination wants reliable tool-use; no hard exclusions
+  window_policy:
+    heavy_work: false             # coordination = many small status/tracking calls, not heavy batches
+    defer_below_window_pct: 12    # supervisor keeps coordinating on a low window, just above the deep-design roles
+    on_window_exhausted: swap-fallback
+
+# ───────────────────────────────────────────────────────────────── skills
+skills:
+  shared:
+    - { skill: dependency-tracking,    scope: write }    # owns the cross-team dependency graph
+    - { skill: milestone-management,   scope: write }    # tracks program milestones and timelines
+    - { skill: risk-register,          scope: write }    # maintains the program risk register
+    - { skill: cross-team-coordination, scope: write }   # runs the seams between workstreams
+    - { skill: knowledge-retrieval,    scope: read }     # queries mempalace for prior program decisions
+    - { skill: knowledge-capture,      scope: write }    # persists status, dependency, and risk decisions
+  claude_skills: []
+  hermes_skills: []
+
+# ─────────────────────────────────────────────────────────────── plugins
+plugins: []                       # program coordination needs no installable capability bundles
+
+# ──────────────────────────────────────────────────────────── connectors
+connectors:
+  mcp_servers:
+    - { server: orchestrator, access: read }    # reads delegation/comms + capacity; does not own routing
+    - { server: kanban,       access: write }    # owns the program board: milestones, dependencies, risks
+  integrations:
+    - { integration: jira,      access: write }   # program epics, dependency links, milestone tracking
+    - { integration: comms-bus, access: read }    # observes all workstream traffic to keep status grounded
+
+# ─────────────────────────────────────────────────────────── capabilities
+capabilities:
+  # Least-privilege RBAC scopes drawn from access-matrix.yaml. The TPM coordinates
+  # and tracks; he holds NO source-control, deployment, merge, override, routing-
+  # admin, or counselor scopes. He reads delegation context and writes the program
+  # board / decision log, nothing that touches code or ships software. He advises
+  # sequencing; he does not route, merge, or deploy. capability-grant is forbidden.
+  granted:
+    - delegation:read                # reads the delegation tracker to monitor cross-team commitments and stalls
+    - knowledge-retrieval:read       # queries mempalace for prior program decisions, risks, and dependency patterns
+    - knowledge-capture:write        # persists status, dependency edges, risk entries, and retrospective findings
+    - kanban:write                   # owns the program board: milestones, dependency links, and the risk register
+  forbidden:
+    - source-control:read            # he tracks the program; he does not read or touch the codebase
+    - source-control:write           # never writes code or docs to source
+    - source-control:admin           # merge authority belongs to the user-handler
+    - deployment:read                # outside program-coordination concern
+    - deployment:write               # he sequences delivery; devops/release-manager deploys
+    - quality-gate:approve           # he does not own a review gate; he feeds readiness into the gates
+    - quality-gate:override          # may never override a gate verdict
+    - delegation:write               # he reads delegation status and advises sequencing; he does not issue assignments
+    - inter-agent-protocol:admin     # routing is the coordinator's / merge authority's, not his
+    - counselor-invocation:execute   # only the merge authority convenes a binding Counselor
+    - capability-grant               # cannot widen his own or anyone's scopes (archetype-forbidden)
+  least_privilege_justification:
+    delegation:read: "Reads the delegation tracker to monitor cross-team commitments, detect stalls, and keep the dependency graph in sync; he observes assignments rather than issuing them."
+    knowledge-retrieval:read: "Retrieves prior program decisions, risk history, and dependency patterns so coordination stays consistent with how earlier programs actually behaved."
+    knowledge-capture:write: "Persists program status, dependency edges, risk-register entries, and retrospective findings so the team can retrieve the 'why' and the 'what slipped' later."
+    kanban:write: "Owns the program board: milestones, cross-team dependency links, and the risk register; this is the role's core artifact."
+
+# ───────────────────────────────────────────────────────────────── memory
+memory:
+  kb_read:
+    - { wing: season,  hall: dependencies }     # cross-team dependency graph state
+    - { wing: season,  hall: milestones }       # program milestone history and status
+    - { wing: season,  hall: risks }            # the running risk register
+    - { wing: season,  hall: decisions }        # prior program + sequencing decisions
+    - { wing: private, hall: learnings }
+  kb_write:
+    - { wing: season,  hall: dependencies }     # dependency edges and their resolution
+    - { wing: season,  hall: milestones }       # milestone updates and slips
+    - { wing: season,  hall: risks }            # risk entries, mitigations, and closure
+    - { wing: season,  hall: decisions }        # program-level coordination decisions
+    - { wing: private, hall: learnings }
+  capture_tags: ["program-status", "dependency", "milestone", "risk", "blocker", "retrospective"]
+  retrieval_tags: ["program-status", "dependency", "milestone", "risk", "blocked"]
+
+# ───────────────────────────────────────────────────────────────── schedule
+schedule:
+  activation: hybrid                 # event-driven on workstream events + periodic program sweep
+  heartbeat:
+    beat_interval: PT15M             # periodic sweep of dependencies, milestones, and the risk register
+    quiet_hours: []                  # coordination defers cleanly under quiet hours; risk alerts bypass them
+  cron_jobs:
+    - { job_key: dependency-sweep,        cron: "*/15 * * * *", task: sweep-cross-team-dependencies, priority: normal, heavy: false }
+    - { job_key: risk-register-review,    cron: "0 */4 * * *",  task: review-and-refresh-risk-register, priority: normal, heavy: false }
+    - { job_key: program-status-rollup,   cron: "0 9 * * *",    task: compile-program-status-report,    priority: normal, heavy: false }
+  silent_fail_checks:
+    - { check: "comms bus reachable",            on_fail: block-and-alert }
+    - { check: "program/kanban board readable",  on_fail: block-and-alert }
+    - { check: "delegation tracker readable",    on_fail: degrade }
+    - { check: "roster directory loaded",        on_fail: degrade }
+    - { check: "mempalace available",            on_fail: continue }
+    - { check: "usage window status fresh",      on_fail: continue }
+
+# ───────────────────────────────────────────────────────────────── comms
+comms:
+  subscribe:
+    - { topic: "team:{season}",          role: both }    # primary team topic
+    - { topic: "program:{season}",       role: both }    # program coordination + status channel he owns
+    - { topic: "gate:{season}:merge",    role: reader }  # watches what is ready to ship vs. milestone plan
+    - { topic: "control:global",         role: reader }  # listens for incidents and exec/portfolio directives
+  publish_default_topic: "program:{season}"
+  can_delegate_to:
+    - scrum-master                  # sprint mechanics, cadence, and day-to-day blocker removal
+  can_be_delegated_by:
+    - product-manager               # the PM routes cross-team coordination and dependency work to the TPM
+    - user-handler                  # the merge authority routes process/coordination questions to the TPM
+  sync_consult:
+    - { target: "product-manager", when: "a dependency slip forces a milestone or roadmap-commitment change", blocking: true }
+    - { target: "user-handler",    when: "a cross-team blocker needs a ship/sequencing decision only the merge authority can make", blocking: true }
+
+# ───────────────────────────────────────────────────────────────── subagents
+subagents:
+  can_spawn: true
+  max_concurrent: 2
+  allowed_archetypes: ["scrum-master"]   # delegates sprint mechanics + cadence to the scrum-master
+  spawn_model_class: fast-cheap          # cadence/mechanics helpers run cheaper than the TPM himself
+
+# ───────────────────────────────────────────────────────────────── guardrails
+guardrails:
+  autonomy_level: gated-authority    # full authority WITHIN coordination/tracking; bounded by PM + merge authority
+  requires_human_approval_for:
+    - "declaring a program milestone slipped in a way that moves a committed delivery date"
+    - "escalating a cross-team blocker to incident severity"
+  forbidden_actions:
+    - "Lose sight of a cross-team dependency or let one go untracked"
+    - "Micromanage an individual team or reassign work that is not yours to move"
+    - "Hide or delay surfacing a program risk to protect a status report"
+    - "Present stale status as current"
+    - "Issue delegation assignments (you advise sequencing; the PM and merge authority assign)"
+    - "Write production/implementation code or docs to source"
+    - "Merge any branch (the user-handler is the sole merge authority)"
+    - "Deploy to any environment (delegate to devops / release-manager)"
+    - "Override a review-gate verdict"
+    - "Expand the season roster without explicit re-scoping"
+    - "Ignore an incident-commander escalation on control:global"
+    - "Use a capability scope not in the granted list"
+  escalation_target: "product-manager"
+  spend_cap_usd: null               # N/A for a coordination role
+
+# ───────────────────────────────────────────────────────────────── db_linkage
+db_linkage:
+  archetype_pk: technical-program-manager   # FK target in the archetypes table
+  maps_to_tables:
+    - archetypes
+    - agent_configs
+    - agents            # the instance row binds this config to the President Hagemeyer casting in a season
+    - agent_config_skills
+    - agent_config_connectors
+    - agent_config_capabilities
+    - agent_config_topics
+    - cron_jobs
+    - comms_subscription
+    - role_model_fit
+  # Seeds role_model_fit (model-intelligence track owns the table + final fit math).
+  # model ids are model_catalog.id values (provider-qualified).
+  role_model_fit_seed:
+    - { model_id: "anthropic:claude-sonnet-4-6",     fit_score: 0.94, note: "Best balance of coordination judgment, dependency tracking, and reliable tool-use for the per-season supervisor; recommended, fallback_rank 0." }
+    - { model_id: "anthropic:claude-haiku-4-5",      fit_score: 0.80, note: "Cheaper Anthropic degrade that keeps the supervisor coordinating; fallback within Anthropic and final degrade." }
+    - { model_id: "copilot:gpt-5.4-mini",            fit_score: 0.78, note: "Off-Anthropic balanced fallback; solid status synthesis, preferred when the Anthropic window is pressured (free against the Copilot seat)." }
+    - { model_id: "copilot:gemini-3-flash-preview",  fit_score: 0.70, note: "Diverse balanced fallback with large context; acceptable for coordination when Anthropic and GPT-mini are spent." }

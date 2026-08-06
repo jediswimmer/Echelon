@@ -1,12 +1,28 @@
 /**
- * Review Gate Runner
+ * Review Gate Runner (B2/B4)
  *
- * Orchestrates the 7 review gates for character work validation.
- * The first 6 gates run in parallel; 'refinement' runs sequentially after all pass.
- * Gate execution is currently stubbed — real logic will come from Plan 05 shared-skills.
+ * Public, Electron-facing review-gate API. The 7 gates are now REAL: this module
+ * delegates to the copied build orchestration (`runReviewPipeline`) driven by the
+ * real model-backed `GateRunner` (`gate-runner-impl.ts`), then maps the
+ * build-shaped results back to the Electron `GateResult` vocabulary the IPC
+ * contract and `ReviewGateBoard` UI expect (`{ gate, status, feedback }` with
+ * unsuffixed gate names). The `review-gate:updated` broadcast contract is
+ * unchanged.
+ *
+ * At MAX_BOUNCES the pipeline escalates to the 4-seat Counselor at Placement C
+ * (deadlock, binding, majority); merge is gated via `attemptMerge`.
  */
 
 import { broadcastToAllWindows } from '../utils/broadcast';
+import {
+  runReviewPipeline,
+  MAX_BOUNCES,
+  type GateResult as PipelineGateResult,
+  type ReviewPipelineInput,
+  type ReviewPipelineResult,
+} from './review-pipeline';
+import { createGateRunner } from './gate-runner-impl';
+import { invokeCounselor, type CounselorVerdict } from '../services/counselor-service';
 
 export type GateType =
   | 'architecture'
@@ -35,95 +51,148 @@ export const GATE_DEFINITIONS: { gate: GateType; description: string }[] = [
   { gate: 'refinement', description: 'Final polish pass after all other gates pass' },
 ];
 
-const PARALLEL_GATES: GateType[] = [
-  'architecture',
-  'code',
-  'qa',
-  'security',
-  'adversarial',
-  'ui',
-];
+// Build (suffixed) gate id ⇄ Electron (unsuffixed) gate id.
+const BUILD_TO_ELECTRON_GATE: Record<string, GateType> = {
+  'architecture-review': 'architecture',
+  'code-review': 'code',
+  'qa-review': 'qa',
+  'security-review': 'security',
+  'adversarial-review': 'adversarial',
+  'ui-functionality-review': 'ui',
+  'refinement-pass': 'refinement',
+};
+
+export interface RunReviewGatesOptions {
+  /** Diff of the character's worktree changes, fed to each gate's prompt. */
+  worktreeDiff?: string;
+  /** Filesystem path of the worktree under review. */
+  worktreePath?: string;
+  /** Current bounce count (drives MAX_BOUNCES escalation). */
+  bounceCount?: number;
+}
+
+export interface ReviewGatesOutcome {
+  results: GateResult[];
+  passed: boolean;
+  mustBounce: boolean;
+  escalated: boolean;
+  counselorVerdict: CounselorVerdict | null;
+  overallRating: number | null;
+}
 
 // In-memory store of current gate results keyed by characterId
 const currentResults = new Map<string, GateResult[]>();
 
 /**
- * Stub gate execution — resolves with 'pass'.
- * Real implementation will delegate to Plan 05 shared-skills at runtime.
+ * Map one build pipeline result to the Electron gate-result shape.
+ * - pass-fail: result 'pass' → 'pass', else 'fail'
+ * - rating: >=4 → 'pass', else 'fail' (mirrors the pipeline's own >=4 bar)
  */
-async function executeGate(
-  _gate: GateType,
-  _characterId: string,
-  _workSummary: string
-): Promise<GateResult> {
-  // Simulate a small delay for realism
-  await new Promise((resolve) => setTimeout(resolve, 50));
-  return {
-    gate: _gate,
-    status: 'pass',
-    feedback: '',
-  };
+function mapPipelineResult(r: PipelineGateResult): GateResult {
+  const gate = BUILD_TO_ELECTRON_GATE[r.gate] ?? (r.gate as GateType);
+  let status: GateStatus;
+  if (r.type === 'rating') {
+    status = (r.result as number) >= 4 ? 'pass' : 'fail';
+  } else {
+    status = r.result === 'pass' ? 'pass' : 'fail';
+  }
+  const ratingNote = r.type === 'rating' ? ` (rating ${r.result}/5)` : '';
+  const feedback = `${r.notes}${ratingNote}`.trim();
+  return { gate, status, feedback };
 }
 
 /**
- * Run all 7 review gates for a character's work.
- * - First 6 run in parallel
- * - Refinement runs sequentially only if all parallel gates pass
+ * Run all 7 review gates for a character's work against the real model-backed
+ * pipeline, broadcasting progressive updates so the UI animates from pending →
+ * resolved. At MAX_BOUNCES, escalates to the Counselor (Placement C).
  */
 export async function runReviewGates(
   characterId: string,
-  workSummary: string
+  workSummary: string,
+  options: RunReviewGatesOptions = {},
 ): Promise<GateResult[]> {
-  // Initialize all gates as pending
-  const initialResults: GateResult[] = GATE_DEFINITIONS.map((def) => ({
+  const outcome = await runReviewGatesDetailed(characterId, workSummary, options);
+  return outcome.results;
+}
+
+/**
+ * Same as `runReviewGates` but returns the full outcome (pass/bounce/escalation
+ * + any Counselor verdict) for callers that gate merges (B4).
+ */
+export async function runReviewGatesDetailed(
+  characterId: string,
+  workSummary: string,
+  options: RunReviewGatesOptions = {},
+): Promise<ReviewGatesOutcome> {
+  // Initialize all gates as pending and broadcast (unchanged UI contract).
+  const pendingResults: GateResult[] = GATE_DEFINITIONS.map((def) => ({
     gate: def.gate,
     status: 'pending' as GateStatus,
     feedback: '',
   }));
-  currentResults.set(characterId, initialResults);
-  broadcastToAllWindows('review-gate:updated', { characterId, results: initialResults });
+  currentResults.set(characterId, [...pendingResults]);
+  broadcastToAllWindows('review-gate:updated', { characterId, results: pendingResults });
 
-  // Run parallel gates
-  const parallelPromises = PARALLEL_GATES.map(async (gate) => {
-    const result = await executeGate(gate, characterId, workSummary);
-    // Update in-memory results and broadcast
-    const results = currentResults.get(characterId)!;
-    const idx = results.findIndex((r) => r.gate === gate);
-    if (idx !== -1) {
-      results[idx] = result;
-    }
-    broadcastToAllWindows('review-gate:updated', { characterId, results: [...results] });
-    return result;
+  const input: ReviewPipelineInput = {
+    taskId: characterId,
+    worktreePath: options.worktreePath ?? '',
+    worktreeDiff: options.worktreeDiff ?? workSummary,
+    bounceCount: options.bounceCount ?? 0,
+  };
+
+  const gateRunner = createGateRunner();
+  const pipeline: ReviewPipelineResult = await runReviewPipeline(input, gateRunner);
+
+  // Map build results into the Electron shape, then fold them into the
+  // pending list so every defined gate has a slot (gates the pipeline skipped
+  // after a parallel failure stay pending → rendered as such).
+  const merged: GateResult[] = pendingResults.map((p) => {
+    const match = pipeline.gateResults.find((r) => BUILD_TO_ELECTRON_GATE[r.gate] === p.gate);
+    return match ? mapPipelineResult(match) : p;
   });
 
-  const parallelResults = await Promise.all(parallelPromises);
+  currentResults.set(characterId, merged);
+  broadcastToAllWindows('review-gate:updated', { characterId, results: merged });
 
-  // Check if all parallel gates passed
-  const allPassed = parallelResults.every((r) => r.status === 'pass');
-
-  let refinementResult: GateResult;
-  if (allPassed) {
-    refinementResult = await executeGate('refinement', characterId, workSummary);
-  } else {
-    refinementResult = {
-      gate: 'refinement',
-      status: 'fail',
-      feedback: 'Skipped: one or more prerequisite gates failed',
-    };
+  // B4 — escalation: at MAX_BOUNCES, the Counselor renders a binding verdict.
+  let counselorVerdict: CounselorVerdict | null = null;
+  if (pipeline.escalateToCounselor) {
+    try {
+      counselorVerdict = await invokeCounselor(
+        'deadlock-escalation', // Placement C
+        buildEscalationContext(characterId, workSummary, merged, input.bounceCount),
+      );
+    } catch (err) {
+      console.error('[ReviewGate] Counselor escalation failed:', err);
+    }
   }
 
-  // Final update
-  const results = currentResults.get(characterId)!;
-  const refIdx = results.findIndex((r) => r.gate === 'refinement');
-  if (refIdx !== -1) {
-    results[refIdx] = refinementResult;
-  }
+  return {
+    results: merged,
+    passed: pipeline.passed,
+    mustBounce: pipeline.mustBounce,
+    escalated: pipeline.escalateToCounselor,
+    counselorVerdict,
+    overallRating: pipeline.overallRating,
+  };
+}
 
-  const finalResults = [...results];
-  currentResults.set(characterId, finalResults);
-  broadcastToAllWindows('review-gate:updated', { characterId, results: finalResults });
-
-  return finalResults;
+function buildEscalationContext(
+  characterId: string,
+  workSummary: string,
+  results: GateResult[],
+  bounceCount: number,
+): string {
+  const failing = results
+    .filter((r) => r.status === 'fail')
+    .map((r) => `- ${r.gate}: ${r.feedback || 'failed'}`)
+    .join('\n');
+  return [
+    `Review gates have bounced ${bounceCount + 1} times (>= ${MAX_BOUNCES}) for character ${characterId}.`,
+    `## Work Summary\n${workSummary}`,
+    `## Failing Gates\n${failing || '(none recorded)'}`,
+    'The team is deadlocked. Render a BINDING verdict (rate 1-5): is the work acceptable to merge, or must it be redesigned?',
+  ].join('\n\n');
 }
 
 /**
@@ -139,3 +208,6 @@ export function getGateStatus(characterId: string): GateResult[] | null {
 export function listGateDefinitions(): { gate: GateType; description: string }[] {
   return GATE_DEFINITIONS;
 }
+
+// Re-export merge authority so callers gate merges on review `passed` (B4).
+export { attemptMerge, type MergeInput, type MergeResult } from './merge-authority';

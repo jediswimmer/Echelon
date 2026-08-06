@@ -9,11 +9,11 @@ role_summary: |
   does not push code directly — security reviews stay read-only.
 
 primary_responsibilities:
-  - Conduct threat modeling for new features
-  - Perform security code reviews
-  - Assess vulnerabilities in dependencies and configurations
-  - Author security findings and recommendations
-  - Define security requirements and constraints
+  - "Conduct threat modeling for new features"
+  - "Perform security code reviews"
+  - "Assess vulnerabilities in dependencies and configurations"
+  - "Author security findings and recommendations"
+  - "Define security requirements and constraints"
 
 inputs:
   - type: "source_code"

@@ -1,0 +1,30 @@
+required_capabilities:
+  - knowledge-retrieval:read      # reads prior vendor decisions, SLA history, and exit experiences before sourcing
+  - knowledge-capture:write       # persists vendor evaluations, decisions, SLA outcomes, and exit notes to the decision log
+  - monitoring:read               # reads vendor SLA adherence, connector health, provider reliability/latency, and spend-to-date
+  - kanban:write                  # owns the procurement slice of the ops board: evaluation, onboarding, renewal, exit cards
+  - vendor:write                  # onboards, renews, and manages vendor / model-provider / connector relationships through procurement
+
+forbidden_capabilities:
+  - source-control:read           # he owns the supply chain, not the codebase
+  - source-control:write          # the procurement manager does not write code or commit
+  - source-control:admin          # merge authority belongs to the user-handler, not procurement
+  - deployment:read               # outside the procurement concern; platform-sre observes runtime
+  - deployment:write              # he sources capacity; engineering ships product
+  - quality-gate:approve          # he does not own an engineering review gate
+  - quality-gate:override         # the procurement manager never overrides a review gate under cost pressure
+  - delegation:write              # he routes capacity needs UP to the COO; he does not task engineering
+  - inter-agent-protocol:admin    # routing is the coordinator's, not procurement's
+  - budget:approve                # spend approval is the COO's (within her envelope) and the CFO's (above it); procurement executes within a delegated envelope, it does not approve
+  - capability-grant              # granting new scopes is a control-plane / orchestrator function, logged to audit
+  - file-ops:write                # connector/credential provisioning belongs to it-support-admin; procurement holds the relationship, not the secret
+
+# Note: vendor:write is bounded. Procurement onboards, renews, and manages vendor and
+# model-provider relationships WITHIN the operating envelope the COO delegates (which
+# the CFO sets). Recurring or multi-year commitments, irreversible lock-ins, sole-sourcing
+# a critical capability, spend above the envelope, and any vendor touching customer-tenant
+# data escalate (COO/CFO/CEO for spend and lock-in; legal-counsel for terms; CISO and
+# privacy-officer for data handling). Contract terms are routed to legal for review before
+# commit; procurement never signs on the company's behalf. Secrets are provisioned by
+# it-support-admin and held in vault, never by procurement. These bounds are enforced as
+# guardrails (see agent.config.yaml), not as finer scope verbs.

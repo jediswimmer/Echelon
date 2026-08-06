@@ -9,11 +9,11 @@ role_summary: |
   migration paths are safe and reversible.
 
 primary_responsibilities:
-  - Design and maintain database schemas
-  - Optimize queries for performance
-  - Author and review migration scripts
-  - Define indexing strategies
-  - Ensure data integrity constraints
+  - "Design and maintain database schemas"
+  - "Optimize queries for performance"
+  - "Author and review migration scripts"
+  - "Define indexing strategies"
+  - "Ensure data integrity constraints"
 
 inputs:
   - type: "data_requirements"

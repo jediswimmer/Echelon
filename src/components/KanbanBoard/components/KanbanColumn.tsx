@@ -19,6 +19,8 @@ interface KanbanColumnProps {
   onDeleteTask?: (taskId: string) => void;
   onStartTask?: (taskId: string, column: KanbanColumnType) => Promise<{ success: boolean }>;
   onOpenTerminal?: (agentId: string) => void;
+  /** Lookup of task id → title, used to show parent linkage on child cards. */
+  parentTitleById?: Map<string, string>;
   activeTaskId?: string;
 }
 
@@ -30,6 +32,7 @@ export function KanbanColumn({
   onDeleteTask,
   onStartTask,
   onOpenTerminal,
+  parentTitleById,
   activeTaskId,
 }: KanbanColumnProps) {
   const config = COLUMN_CONFIG[column];
@@ -85,6 +88,7 @@ export function KanbanColumn({
                   onDelete={onDeleteTask}
                   onStart={column === 'backlog' ? onStartTask : undefined}
                   onOpenTerminal={column === 'ongoing' ? onOpenTerminal : undefined}
+                  parentTitle={task.parentId ? parentTitleById?.get(task.parentId) : undefined}
                   isBeingDragged={task.id === activeTaskId}
                 />
               ))

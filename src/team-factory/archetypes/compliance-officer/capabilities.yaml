@@ -1,0 +1,29 @@
+required_capabilities:
+  # Verify-and-enforce, never build. Least privilege: she reads the policy, the
+  # obligations, the behavior logs, and the release surface she must check; she
+  # owns the compliance review gate (reject / escalate); she writes the control
+  # register, the conformance verdicts, and the audit trail. She does NOT merge,
+  # deploy, route, grant capabilities, or accept risk. She checks and gates; the
+  # General Counsel accepts risk, and others execute.
+  - policy:read                  # read the founder's guardrail policy — the source of truth for every control
+  - knowledge-retrieval:read     # query the accepted obligations, prior conformance verdicts, and control precedent
+  - source-control:read          # read release candidates + config to check product output against controls (never writes)
+  - monitoring:read              # read agent-behavior / event logs to run conformance checks on what the system actually did
+  - knowledge-capture:write      # persist the control register, conformance verdicts, and the durable audit trail
+  - compliance:review            # NEW SCOPE (flagged) — author conformance checks, control mappings, and compliance attestations
+  - quality-gate:reject          # the compliance review gate — block a release/send/action that violates a binding control
+  - quality-gate:escalate        # escalate a contested control or a policy deviation to the General Counsel
+  - kanban:write                 # track compliance findings + remediation items to closure on the board
+
+forbidden_capabilities:
+  # She checks conformance and gates; she never builds, ships, routes, hands out
+  # authority, or accepts the risk she found. Compliance judgment stays clean by
+  # staying out of the execution path and out of the risk-acceptance decision.
+  - source-control:write         # she does not edit code; she reads it to check it
+  - source-control:admin         # merge authority is the user-handler's, by design
+  - deployment:write             # she never deploys; devops / release-manager executes
+  - deployment:read              # not her surface; keeps blast radius minimal
+  - routing:write                # the orchestrator routes; compliance only checks + flags
+  - capability-grant             # granting scopes is a control-plane function — she verifies grants, never issues them
+  - quality-gate:override        # she may REJECT or ESCALATE a gate; she never waves one through
+  - counselor-invocation:execute # cannot convene the Counselor; escalates to the General Counsel instead

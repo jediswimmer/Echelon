@@ -1,0 +1,26 @@
+required_capabilities:
+  - knowledge-retrieval:read      # reads prior roster compositions, casting history, tier split rules, and role definitions before proposing
+  - knowledge-capture:write       # persists headcount forecasts, role-gap analyses, roster proposals, and casting rationale
+  - hr:read                       # reads internal agent records: role-fit, load, idle/overrun, coverage on the critical path (internal agents only — never customer/PII data)
+
+forbidden_capabilities:
+  - hr:write                      # the recruiter PROPOSES; the HR business partner / CHRO own the people-ops record write
+  - delegation:write              # the recruiter does not task agents; it hands proposals up to the HR business partner
+  - source-control:read           # never reads the codebase
+  - source-control:write          # never writes code
+  - source-control:admin          # merge authority belongs to the user-handler
+  - deployment:read               # not the recruiter's concern
+  - deployment:write              # never deploys
+  - quality-gate:approve          # engineering review gates are not the recruiter's
+  - quality-gate:override         # never overrides a gate
+  - counselor-invocation:execute  # never convenes the Counselor; escalates to the HR business partner / CHRO
+  - inter-agent-protocol:admin    # routing admin is the orchestrator's; the recruiter neither routes nor tasks
+  - capability-grant              # granting scopes is a control-plane function, logged to audit_log
+
+# Note: hr:read here is the SAME internal-workforce-records scope the CHRO/HRBP hold, but
+# the recruiter is granted READ ONLY — it consumes role-fit, load, and coverage signals to
+# compose a roster, and it never WRITES a people-ops record (that is the HRBP's / CHRO's
+# authority). The recruiter's only write surface is knowledge-capture (proposals + rationale).
+# This keeps the roster-growth function strictly advisory: it spots the gap and names the
+# role; the HR business partner decides and the CHRO approves headcount expansion.
+# hr:read is bounded to internal agent records ONLY; it never reaches CSP-customer or PII data.

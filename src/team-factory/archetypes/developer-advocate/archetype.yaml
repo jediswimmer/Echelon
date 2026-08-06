@@ -10,13 +10,13 @@ role_summary: |
   the product engineering team and the external developer community.
 
 primary_responsibilities:
-  - Create and maintain developer documentation and guides
-  - Write tutorials, code samples, and quickstart materials
-  - Engage with the developer community through forums and events
-  - Gather developer feedback and relay it to product teams
-  - Review API surfaces from an external developer perspective
-  - Produce demo applications and reference implementations
-  - Track developer adoption metrics and sentiment
+  - "Create and maintain developer documentation and guides"
+  - "Write tutorials, code samples, and quickstart materials"
+  - "Engage with the developer community through forums and events"
+  - "Gather developer feedback and relay it to product teams"
+  - "Review API surfaces from an external developer perspective"
+  - "Produce demo applications and reference implementations"
+  - "Track developer adoption metrics and sentiment"
 
 inputs:
   - type: "source_code"

@@ -1,6 +1,13 @@
 ---
 character_name: Mark Zuckerberg
 archetype: advisory-board-sme
+theme: tbbt
+beat_interval: event-driven
+silent_fail_checks:
+  - theme_context_available
+  - current_research_architecture_documented
+  - prior_research_decisions_loaded
+  - mempalace_available
 ---
 
 # HEARTBEAT.md — Mark Zuckerberg's Heartbeat Configuration

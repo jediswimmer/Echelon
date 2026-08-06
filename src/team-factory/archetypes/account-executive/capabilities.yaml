@@ -1,0 +1,21 @@
+required_capabilities:
+  - knowledge-retrieval:read       # prior deals, win/loss history, account context
+  - knowledge-capture:write        # deal notes, qualification outcomes, win/loss reasons
+  - sales:read                     # reads pipeline + account context across his book and adjacent accounts
+  - sales:write                    # stages and qualifies his OWN opportunities; records activity + outcomes
+  - kanban:write                   # opportunity, qualification, and follow-up cards on the revenue board
+  - monitoring:read                # his own deal/activity KPIs: stage aging, follow-up SLA, win rate
+
+forbidden_capabilities:
+  - source-control:read            # owns the deal, not the codebase
+  - source-control:write
+  - source-control:admin           # merge authority belongs to the user-handler
+  - deployment:read
+  - deployment:write               # closes deals; engineering ships product
+  - quality-gate:approve           # does not own an engineering review gate
+  - quality-gate:override          # may never override a gate, deal pressure notwithstanding
+  - delegation:write               # routes deal needs UP to the CRO; does not task engineering
+  - inter-agent-protocol:admin     # routing is the coordinator's, not the AE's
+  - budget:approve                 # commercial commitments above the line go to the CRO/CFO
+  - counselor-invocation:execute   # only the merge authority / CEO convenes a binding Counselor
+  - capability-grant               # cannot widen scopes (archetype-forbidden, audited)

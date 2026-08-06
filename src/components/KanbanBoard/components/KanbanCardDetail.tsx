@@ -2,18 +2,52 @@
 
 import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { X, Trash2, Save, Bot, Clock, Plus, Minus } from 'lucide-react';
+import {
+  X,
+  Trash2,
+  Save,
+  Bot,
+  Clock,
+  Plus,
+  MessageSquare,
+  Send,
+  Link2,
+  GitBranch,
+  GitPullRequest,
+  UserCheck,
+} from 'lucide-react';
 import type { KanbanTask } from '@/types/kanban';
-import { COLUMN_CONFIG, getLabelColor } from '../constants';
+import { COLUMN_CONFIG, getLabelColor, ISSUE_TYPE_CONFIG, getIssueType } from '../constants';
 
 interface KanbanCardDetailProps {
   task: KanbanTask;
+  /** Title of the parent epic/story, if this is a child issue. */
+  parentTitle?: string;
   onClose: () => void;
   onUpdate: (data: Partial<KanbanTask>) => Promise<void>;
   onDelete: () => void;
+  /** Append a comment (author = 'user'). State refreshes via task broadcast. */
+  onAddComment?: (taskId: string, body: string) => Promise<void>;
+  /** Remove a comment by id. */
+  onDeleteComment?: (taskId: string, commentId: string) => Promise<unknown>;
 }
 
-export function KanbanCardDetail({ task, onClose, onUpdate, onDelete }: KanbanCardDetailProps) {
+/** Human-friendly relative time (e.g. "5m ago", "2h ago", "3d ago"). */
+function relativeTime(iso: string): string {
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return '';
+  const diff = Date.now() - then;
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}d ago`;
+  return new Date(iso).toLocaleDateString();
+}
+
+export function KanbanCardDetail({ task, parentTitle, onClose, onUpdate, onDelete, onAddComment, onDeleteComment }: KanbanCardDetailProps) {
   const [title, setTitle] = useState(task.title);
   const [description, setDescription] = useState(task.description);
   const [priority, setPriority] = useState(task.priority);
@@ -22,8 +56,46 @@ export function KanbanCardDetail({ task, onClose, onUpdate, onDelete }: KanbanCa
   const [labels, setLabels] = useState<string[]>(task.labels);
   const [labelInput, setLabelInput] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+  const [commentInput, setCommentInput] = useState('');
+  const [isCommenting, setIsCommenting] = useState(false);
+  const [isOpeningPR, setIsOpeningPR] = useState(false);
+  const [prMessage, setPrMessage] = useState<string | null>(null);
 
   const columnConfig = COLUMN_CONFIG[task.column];
+  const issueType = getIssueType(task.issueType);
+  const issueConfig = ISSUE_TYPE_CONFIG[issueType];
+  const comments = task.comments ?? [];
+
+  // 17e: branch-per-epic + PR-on-completion is only meaningful for epics/stories.
+  const isEpicOrStory = issueType === 'epic' || issueType === 'story';
+  const reviewGateLabel =
+    task.reviewGate === 'pending-human'
+      ? 'Awaiting human review'
+      : task.reviewGate === 'approved'
+        ? 'Approved'
+        : task.reviewGate === 'auto-approved'
+          ? 'Auto-approved (no human team)'
+          : undefined;
+
+  // Manually open the team-factory PR for this epic/story (never auto-merges).
+  const handleOpenPR = async () => {
+    if (!task.seasonId || isOpeningPR) return;
+    setIsOpeningPR(true);
+    setPrMessage(null);
+    try {
+      const api = (window as unknown as { electronAPI?: { season?: { epic?: { openPR?: (s: string, t: string) => Promise<{ opened: boolean; prUrl?: string; reason?: string }> } } } }).electronAPI;
+      const result = await api?.season?.epic?.openPR?.(task.seasonId, task.id);
+      if (result?.opened && result.prUrl) {
+        setPrMessage(`PR opened: ${result.prUrl}`);
+      } else {
+        setPrMessage(result?.reason ?? 'Could not open a PR for this epic.');
+      }
+    } catch (err) {
+      setPrMessage(err instanceof Error ? err.message : 'Failed to open PR.');
+    } finally {
+      setIsOpeningPR(false);
+    }
+  };
 
   const hasChanges =
     title !== task.title ||
@@ -71,6 +143,18 @@ export function KanbanCardDetail({ task, onClose, onUpdate, onDelete }: KanbanCa
     }
   };
 
+  const handleAddComment = async () => {
+    const body = commentInput.trim();
+    if (!body || !onAddComment || isCommenting) return;
+    setIsCommenting(true);
+    try {
+      await onAddComment(task.id, body);
+      setCommentInput('');
+    } finally {
+      setIsCommenting(false);
+    }
+  };
+
   return (
     <>
       {/* Backdrop */}
@@ -92,11 +176,24 @@ export function KanbanCardDetail({ task, onClose, onUpdate, onDelete }: KanbanCa
         <div className="bg-card border border-border rounded-2xl shadow-2xl overflow-hidden">
           {/* Header */}
           <div className="flex items-center justify-between px-6 py-4 border-b border-border">
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2 flex-wrap">
               <div className={`w-3 h-3 rounded-full ${columnConfig.accentColor}`} />
               <span className="text-sm font-medium text-muted-foreground">
                 {columnConfig.title}
               </span>
+              {/* Issue type badge */}
+              <span
+                className={`inline-flex items-center text-[11px] font-medium px-2 py-0.5 rounded-full border ${issueConfig.bg} ${issueConfig.text} ${issueConfig.border}`}
+              >
+                {issueConfig.label}
+              </span>
+              {/* Jira key chip (display only — no API call) */}
+              {task.jiraKey && (
+                <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-secondary border border-border text-muted-foreground font-mono">
+                  <Link2 className="w-3 h-3 shrink-0" />
+                  {task.jiraKey}
+                </span>
+              )}
             </div>
             <div className="flex items-center gap-1">
               <button
@@ -126,6 +223,12 @@ export function KanbanCardDetail({ task, onClose, onUpdate, onDelete }: KanbanCa
                 placeholder="Task title..."
                 className="w-full text-lg font-semibold bg-transparent border-none focus:outline-none focus:ring-0 p-0 placeholder:text-muted-foreground/50"
               />
+              {/* Parent linkage (story → epic, task → story) */}
+              {task.parentId && parentTitle && (
+                <p className="text-xs text-muted-foreground/80 mt-1 truncate" title={parentTitle}>
+                  ↳ in {parentTitle}
+                </p>
+              )}
             </div>
 
             {/* Description */}
@@ -267,6 +370,149 @@ export function KanbanCardDetail({ task, onClose, onUpdate, onDelete }: KanbanCa
                   <span className="text-xs text-muted-foreground/50">No skills required</span>
                 )}
               </div>
+            </div>
+
+            {/* Release: branch / review gate / PR (17e — epics & stories only) */}
+            {isEpicOrStory && (task.branch || task.reviewGate || task.prUrl || task.seasonId) && (
+              <div className="pt-4 border-t border-border/50">
+                <label className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground uppercase tracking-wider mb-3">
+                  <GitBranch className="w-3.5 h-3.5" />
+                  Release
+                </label>
+                <div className="space-y-2">
+                  {/* Branch */}
+                  {task.branch ? (
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <GitBranch className="w-3.5 h-3.5 shrink-0" />
+                      <span className="font-mono truncate" title={task.branch}>{task.branch}</span>
+                    </div>
+                  ) : (
+                    <p className="text-xs text-muted-foreground/60">No branch yet — created when this epic is started.</p>
+                  )}
+
+                  {/* Review gate */}
+                  {reviewGateLabel && (
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <UserCheck className="w-3.5 h-3.5 shrink-0" />
+                      <span>{reviewGateLabel}</span>
+                    </div>
+                  )}
+
+                  {/* PR link or Open-PR action */}
+                  {task.prUrl ? (
+                    <a
+                      href={task.prUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-2 text-xs text-purple-500 hover:underline"
+                    >
+                      <GitPullRequest className="w-3.5 h-3.5 shrink-0" />
+                      View PR{task.prNumber ? ` #${task.prNumber}` : ''}
+                      {task.prState && task.prState !== 'open' ? ` (${task.prState})` : ''}
+                    </a>
+                  ) : (
+                    task.seasonId && (
+                      <button
+                        type="button"
+                        onClick={handleOpenPR}
+                        disabled={isOpeningPR}
+                        className="inline-flex items-center gap-2 px-3 py-1.5 text-xs rounded-lg bg-purple-500/10 border border-purple-500/30 text-purple-500 hover:bg-purple-500/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        <GitPullRequest className="w-3.5 h-3.5" />
+                        {isOpeningPR ? 'Opening PR…' : 'Open PR'}
+                      </button>
+                    )
+                  )}
+
+                  {/* Open-PR result / skip reason */}
+                  {prMessage && (
+                    <p className="text-[11px] text-muted-foreground/80 break-words">{prMessage}</p>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Comments */}
+            <div className="pt-4 border-t border-border/50">
+              <label className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground uppercase tracking-wider mb-3">
+                <MessageSquare className="w-3.5 h-3.5" />
+                Comments
+                {comments.length > 0 && (
+                  <span className="text-muted-foreground/70 normal-case tracking-normal">({comments.length})</span>
+                )}
+              </label>
+
+              {/* Thread */}
+              <div className="space-y-3 max-h-52 overflow-y-auto mb-3">
+                {comments.length === 0 && (
+                  <p className="text-xs text-muted-foreground/50">No comments yet</p>
+                )}
+                {comments.map((comment) => (
+                  <div key={comment.id} className="group/comment flex gap-2.5">
+                    <div className="w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center shrink-0 mt-0.5">
+                      <span className="text-[10px] font-medium text-primary uppercase">
+                        {(comment.authorName || comment.author || '?').charAt(0)}
+                      </span>
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-medium text-foreground truncate">
+                          {comment.authorName || comment.author}
+                        </span>
+                        <span className="text-[11px] text-muted-foreground/70 shrink-0">
+                          {relativeTime(comment.createdAt)}
+                        </span>
+                        {comment.source === 'jira' && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-secondary border border-border text-muted-foreground shrink-0">
+                            Jira
+                          </span>
+                        )}
+                        {onDeleteComment && (
+                          <button
+                            type="button"
+                            onClick={() => onDeleteComment(task.id, comment.id)}
+                            className="ml-auto p-1 rounded hover:bg-red-500/10 text-muted-foreground hover:text-red-500 transition-colors opacity-0 group-hover/comment:opacity-100"
+                            title="Delete comment"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        )}
+                      </div>
+                      <p className="text-sm text-foreground/90 whitespace-pre-wrap break-words mt-0.5">
+                        {comment.body}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Add comment */}
+              {onAddComment && (
+                <div className="flex gap-2 items-end">
+                  <textarea
+                    value={commentInput}
+                    onChange={(e) => setCommentInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                        e.preventDefault();
+                        handleAddComment();
+                      }
+                    }}
+                    placeholder="Add a comment... (⌘↵ to send)"
+                    rows={2}
+                    className="flex-1 text-sm bg-secondary/30 border border-border/50 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none placeholder:text-muted-foreground/50"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleAddComment}
+                    disabled={!commentInput.trim() || isCommenting}
+                    className="p-2.5 bg-primary text-primary-foreground rounded-xl hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
+                    title="Add comment"
+                  >
+                    <Send className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
             </div>
 
             {/* Meta info */}

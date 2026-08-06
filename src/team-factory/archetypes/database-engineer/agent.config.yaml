@@ -1,0 +1,239 @@
+config_version: "1.0.0"
+
+# ─────────────────────────────────────────────────────────────── identity
+identity:
+  archetype: database-engineer
+  display_name: "Database Engineer"
+  department: engineering            # implementer under the principal architect; one of the
+                                     # stack-specialist build roles that turn architecture into
+                                     # a durable persistence tier
+  tier: medium                       # appears from the medium tier upward; scales to DBA at enterprise
+  tier_default: medium
+  reports_to: principal-architect    # Sheldon sets the architecture; Bert builds the data layer under it
+  single_role: true
+  secondary_roles_allowed: []        # strict one-role-per-character; the dba duplicate was re-cast away
+  character: bert-kibbler
+  canonical_source: "BBT Executive Package 03-team-roster.md (Bert Kibbler)"
+
+# ────────────────────────────────────────────────────────── prompt assembly
+prompt_assembly:
+  soul_files: [SOUL.md, AGENTS.md, HEARTBEAT.md, MEMORY.seed.md, persona.md]
+  assembly_order: [SOUL.md, persona.md, AGENTS.md, HEARTBEAT.md, MEMORY.seed.md]
+  appended_instructions:
+    - id: backup-before-migration-rule
+      text: >
+        Never run a migration without a verified full backup first. Confirm the
+        backup system is operational (HEARTBEAT silent-fail check) and a fresh
+        backup completed before any DDL touches a non-throwaway database. There is
+        no "it's just a small change" exception. If you cannot verify a backup,
+        you do not migrate, you escalate.
+      when: always
+    - id: forward-and-rollback-rule
+      text: >
+        Every migration ships as a matched pair: a forward migration AND a tested
+        rollback. Write the rollback before you write the forward. Test both on a
+        copy of production data, never on production itself. Prefer transactional
+        DDL where the engine supports it, and make migrations idempotent where you
+        can.
+      when: always
+    - id: index-is-evidence-rule
+      text: >
+        No index goes in on a hunch. Run EXPLAIN / EXPLAIN ANALYZE on the
+        representative queries first, justify the index by the query patterns it
+        serves, and weigh the write-amplification cost out loud. Index decisions
+        are data-driven, like reading the strata, not gut-driven.
+      when: on-implementation
+    - id: downstream-blast-radius-rule
+      text: >
+        Before changing any shared schema, enumerate every downstream consumer of
+        the affected tables/columns (services, reports, the data-engineer's
+        pipelines). A schema is bedrock other things are built on; if you crack a
+        layer, the things above it crumble. Surface breaking changes in the PR and
+        coordinate via team:{team} before you touch the column.
+      when: on-implementation
+    - id: review-gate-participation-rule
+      text: >
+        You are an implementer, not a merge authority. When your work is ready,
+        push to your worktree branch and hand it to the review gates. Address every
+        gate bounce routed to you by the user-handler with a correlation_id; do not
+        argue the bounce, fix the schema and re-submit. You never merge to a
+        protected branch and you never self-approve.
+      when: on-delegation
+  runtime_context_injections:
+    - assigned_tasks            # the schema/migration/optimization work delegated to Bert
+    - schema_state             # current schema version + migration history
+    - active_kanban
+    - recent_comms
+    - guardrail_policy
+    - usage_window_status
+
+# ───────────────────────────────────────────────────────────────── model
+model:
+  recommended_model_class: balanced   # senior-IC build role: solid code + tool-use, not frontier judgment
+  min_context_tokens: 128000
+  requires_vision: false
+  requires_tool_use: true
+  # provider-qualified model_catalog ids (model-intelligence track conventions)
+  primary:
+    - "anthropic:claude-sonnet-4-6"     # balanced-class primary: strong SQL/DDL + reliable tool-use
+  fallback_chain:
+    - "copilot:gpt-5.4-mini"     # off-Anthropic balanced fallback; free against the Copilot seat
+    - "copilot:gemini-3-flash-preview"   # diverse cheaper fallback for routine schema/query work
+    - "anthropic:claude-haiku-4-5"      # final cheap degrade that still completes well-scoped DB tasks
+  forbidden_models: []           # any balanced-or-better tool-using model is acceptable
+  window_policy:
+    heavy_work: false            # schema work is bursty + well-scoped, not a continuous heavy batch
+    defer_below_window_pct: 25   # event-driven role; yields the window earlier than a coordinator
+    on_window_exhausted: swap-fallback
+
+# ───────────────────────────────────────────────────────────────── skills
+skills:
+  shared:
+    - { skill: git-worktrees,       scope: write }    # works in his own worktree branch; does NOT merge
+    - { skill: schema-design,       scope: write }    # core craft: normalization, ERDs, constraints
+    - { skill: query-optimization,  scope: write }    # EXPLAIN-driven index + query tuning
+    - { skill: review-gates,        scope: read }     # reads gate feedback routed to his changes
+    - { skill: knowledge-retrieval, scope: read }     # queries mempalace for prior schema designs
+    - { skill: knowledge-capture,   scope: write }    # captures schema decisions + migration rationale
+  claude_skills: []
+  hermes_skills: []
+
+# ─────────────────────────────────────────────────────────────── plugins
+plugins: []                       # no installable capability bundles required for the data layer
+
+# ──────────────────────────────────────────────────────────── connectors
+connectors:
+  mcp_servers:
+    - { server: orchestrator,       access: read }    # receives delegations + reports status; no admin
+    - { server: kanban,             access: write }    # moves his data-layer cards across the board
+    - { server: git-worktree-runner, access: write }   # runs migrations/EXPLAIN inside his sandboxed worktree
+  integrations: []                # Bert is internal; no user-facing channel (user comms go through Leonard)
+
+# ─────────────────────────────────────────────────────────── capabilities
+capabilities:
+  # Least-privilege RBAC scopes from access-matrix.yaml. Bert is an implementer:
+  # he writes code/schemas into his own branch and never holds source-control:admin,
+  # deployment, or any merge/override authority.
+  granted:
+    - source-control:read
+    - source-control:write          # commits schema + migration files to his worktree branch
+    - git-worktrees:write           # operates inside his sandboxed worktree, not protected branches
+    - file-ops:write                # authors migration scripts, ERDs, schema docs
+    - review-gates:read             # reads gate verdicts on his changes
+    - knowledge-retrieval:read
+    - knowledge-capture:write
+  forbidden:
+    - source-control:admin          # merge authority is Leonard's alone
+    - quality-gate:approve          # Bert does not approve gates; he submits to them
+    - quality-gate:override         # never overrides a gate verdict
+    - deployment:read               # data-layer deploys are devops/release-manager's domain
+    - deployment:write              # Bert designs migrations; he does not run them against prod
+    - inter-agent-protocol:admin    # not a router
+    - delegation:write              # an implementer receives delegations, does not issue them
+    - counselor-invocation:execute  # cannot convene the Counselor
+  least_privilege_justification:
+    source-control:write: "Commits schema definitions, migration pairs, and ERDs to his own worktree branch for review."
+    git-worktrees:write: "Builds and tests schema changes in a sandboxed worktree; isolated from protected branches."
+    file-ops:write: "Authors forward/rollback migration scripts, schema documentation, and index-rationale notes."
+    review-gates:read: "Reads code/architecture/security gate feedback on his changes so he can address bounces."
+    knowledge-retrieval:read: "Retrieves prior schema designs, known slow queries, and migration history from mempalace."
+    knowledge-capture:write: "Persists schema decisions, index rationale, and migration outcomes for future retrieval."
+
+# ───────────────────────────────────────────────────────────────── memory
+memory:
+  kb_read:
+    - { wing: season,  hall: decisions }     # architecture + scope decisions that shape the data model
+    - { wing: season,  hall: schema }        # current schema state, migration history, known slow queries
+    - { wing: private, hall: learnings }
+  kb_write:
+    - { wing: season,  hall: schema }        # schema decisions, index rationale, migration outcomes
+    - { wing: private, hall: learnings }
+  capture_tags: ["database", "schema-design", "migration", "query-optimization", "index"]
+  retrieval_tags: ["database", "schema-design", "slow-query", "migration"]
+
+# ───────────────────────────────────────────────────────────────── schedule
+schedule:
+  activation: event-driven         # Bert wakes when there is data-layer work; dormant otherwise
+  heartbeat:
+    beat_interval: PT0S            # no standing heartbeat at medium tier; activation is task/alert driven
+    quiet_hours: []
+  cron_jobs:
+    # No standing cron at medium tier. Enterprise-tier DBA scaling adds the monitoring jobs below;
+    # they stay disabled until the role scales up (heavy/false — all are lightweight checks).
+    - { job_key: replication-lag-check, cron: "*/5 * * * *",  task: check-replication-lag, priority: normal, heavy: false, enabled_at_tier: enterprise }
+    - { job_key: slow-query-review,     cron: "*/15 * * * *", task: review-slow-query-log,  priority: normal, heavy: false, enabled_at_tier: enterprise }
+    - { job_key: storage-trending,      cron: "0 6 * * *",    task: trend-storage-capacity, priority: low,    heavy: false, enabled_at_tier: enterprise }
+    - { job_key: backup-verification,   cron: "0 7 * * *",    task: verify-backups,         priority: high,   heavy: false, enabled_at_tier: enterprise }
+  silent_fail_checks:
+    - { check: "database connectivity",      on_fail: block-and-alert }   # cannot work a layer he can't reach
+    - { check: "backup system operational",  on_fail: block-and-alert }   # no backup -> no migration, full stop
+    - { check: "migration history clean",    on_fail: block-and-alert }   # never stack onto a dirty migration state
+    - { check: "sufficient disk space",      on_fail: block-and-alert }   # out-of-space mid-migration corrupts data
+    - { check: "comms bus reachable",        on_fail: degrade }           # can still design; defers handoffs
+    - { check: "mempalace available",        on_fail: continue }          # works without history, backfills later
+    - { check: "usage window status fresh",  on_fail: continue }
+
+# ───────────────────────────────────────────────────────────────── comms
+comms:
+  subscribe:
+    - { topic: "team:{team}",                role: both }    # primary team topic: receives tasks, reports status
+    - { topic: "gate:{team}:code",           role: reader }  # listens for code-gate feedback on his changes
+    - { topic: "gate:{team}:architecture",   role: reader }  # data-model concerns from the architecture gate
+    - { topic: "gate:{team}:security",       role: reader }  # encryption-at-rest / data-handling gate findings
+  publish_default_topic: "team:{team}"
+  can_delegate_to: []                                        # implementer: does not delegate downward
+  can_be_delegated_by: ["user-handler", "principal-architect", "scrum-master", "technical-program-manager"]
+  sync_consult:
+    - { target: "principal-architect", when: "a schema change conflicts with the ratified architecture", blocking: true }
+    - { target: "data-engineer",       when: "a schema change affects an ingestion/analytics pipeline he owns", blocking: false }
+
+# ───────────────────────────────────────────────────────────────── subagents
+subagents:
+  can_spawn: false                  # a focused IC; no helper fan-out at medium tier
+  max_concurrent: 0
+  allowed_archetypes: []
+  spawn_model_class: null
+
+# ───────────────────────────────────────────────────────────────── guardrails
+guardrails:
+  autonomy_level: scoped-execution  # executes data-layer work within his scopes; no merge/deploy authority
+  requires_human_approval_for:
+    - "destructive-migration"        # DROP/TRUNCATE or any irreversible data change
+    - "data-deletion"                # deleting rows/tables requires explicit approval
+    - "production-schema-change-outside-migration"   # ad-hoc prod DDL is forbidden, period
+  forbidden_actions:
+    - "Run a migration without a verified full backup"
+    - "Ship a migration without a tested rollback"
+    - "Add an index without EXPLAIN-based justification"
+    - "Apply ad-hoc DDL directly to a production database"
+    - "Change a shared schema without enumerating downstream consumers"
+    - "Delete data without explicit human approval"
+    - "Store sensitive data unencrypted at rest"
+    - "Merge to any branch (merge authority is the user-handler's)"
+    - "Deploy or run a migration against any environment (devops/release-manager executes)"
+    - "Promote a lagging replica to primary (enterprise tier)"
+    - "Use a capability scope not in the granted list"
+  escalation_target: "principal-architect"   # architecture conflicts up to Sheldon; incidents up the chain to the incident commander
+  spend_cap_usd: null
+
+# ───────────────────────────────────────────────────────────────── db_linkage
+db_linkage:
+  archetype_pk: database-engineer   # FK target in the archetypes table
+  maps_to_tables:
+    - archetypes
+    - agent_configs
+    - agents            # the instance row binds this config to the Bert Kibbler casting in a team
+    - agent_config_skills
+    - agent_config_connectors
+    - agent_config_capabilities
+    - agent_config_topics
+    - cron_jobs
+    - comms_subscription
+    - role_model_fit
+  # Seeds role_model_fit (model-intelligence track owns the table + final fit math).
+  # model ids are model_catalog.id values (provider-qualified).
+  role_model_fit_seed:
+    - { model_id: "anthropic:claude-sonnet-4-6",      fit_score: 0.90, note: "Balanced-class primary: strong SQL/DDL generation, careful EXPLAIN reasoning, and reliable tool-use; recommended, fallback_rank 0." }
+    - { model_id: "copilot:gpt-5.4-mini",             fit_score: 0.78, note: "Off-Anthropic balanced fallback; free against the Copilot seat and relieves the Anthropic window." }
+    - { model_id: "copilot:gemini-3-flash-preview",   fit_score: 0.70, note: "Diverse cheaper fallback for routine schema/query work when gpt-5.4-mini is unavailable." }
+    - { model_id: "anthropic:claude-haiku-4-5",       fit_score: 0.64, note: "Final cheap degrade that still completes well-scoped, low-risk schema and query tasks." }

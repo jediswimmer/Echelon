@@ -9,13 +9,13 @@ role_summary: |
   for all seasons and projects.
 
 primary_responsibilities:
-  - Design and implement CI/CD pipeline configurations
-  - Automate build, test, and deployment workflows
-  - Maintain pipeline health and optimize build times
-  - Integrate source control hooks and triggers
-  - Manage deployment artifact creation and promotion
-  - Troubleshoot pipeline failures and flaky builds
-  - Enforce build standards and gating policies
+  - "Design and implement CI/CD pipeline configurations"
+  - "Automate build, test, and deployment workflows"
+  - "Maintain pipeline health and optimize build times"
+  - "Integrate source control hooks and triggers"
+  - "Manage deployment artifact creation and promotion"
+  - "Troubleshoot pipeline failures and flaky builds"
+  - "Enforce build standards and gating policies"
 
 inputs:
   - type: "pipeline_config"

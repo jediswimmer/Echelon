@@ -18,7 +18,7 @@ export const ThemeYamlSchema = z.object({
 export const ArchetypeYamlSchema = z.object({
   name: z.string(),
   display_name: z.string(),
-  tier: z.enum(["medium", "large", "enterprise"]),
+  tier: z.enum(["medium", "large", "enterprise", "exec"]),
   canonical_source: z.string(),
   role_summary: z.string(),
   primary_responsibilities: z.array(z.string()),

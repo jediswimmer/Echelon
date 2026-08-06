@@ -4,6 +4,7 @@ import * as path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import { KANBAN_FILE, DATA_DIR } from '../constants';
 import { generateTaskFromPrompt } from '../utils/kanban-generate';
+import { pushTaskMove, pushTaskComment } from '../services/jira-sync';
 
 // ============================================
 // Kanban Board IPC handlers
@@ -11,12 +12,25 @@ import { generateTaskFromPrompt } from '../utils/kanban-generate';
 
 // Types matching frontend
 type KanbanColumn = 'backlog' | 'planned' | 'ongoing' | 'done';
+type KanbanIssueType = 'epic' | 'story' | 'task';
+type KanbanScope = 'all' | 'season' | 'global';
 
 interface TaskAttachment {
   path: string;
   name: string;
   type: 'image' | 'pdf' | 'document' | 'other';
   size?: number;
+}
+
+interface KanbanComment {
+  id: string;
+  author: string;
+  authorName?: string;
+  body: string;
+  createdAt: string;
+  updatedAt?: string;
+  source: 'local' | 'jira';
+  jiraCommentId?: string;
 }
 
 interface KanbanTask {
@@ -38,6 +52,20 @@ interface KanbanTask {
   labels: string[];
   completionSummary?: string;
   attachments: TaskAttachment[];
+  // Season + Jira-style hierarchy (all optional, back-compatible)
+  seasonId?: string;
+  issueType?: KanbanIssueType;
+  parentId?: string;
+  comments?: KanbanComment[];
+  jiraKey?: string;
+  jiraStatus?: string;
+  epicColor?: string;
+  // Branch-per-Epic + PR-on-completion (17e). Set only on epics/stories.
+  branch?: string;
+  prUrl?: string;
+  prNumber?: number;
+  prState?: 'open' | 'merged' | 'closed';
+  reviewGate?: 'pending-human' | 'auto-approved' | 'approved';
 }
 
 interface KanbanTaskCreate {
@@ -49,6 +77,11 @@ interface KanbanTaskCreate {
   priority?: 'low' | 'medium' | 'high';
   labels?: string[];
   attachments?: TaskAttachment[];
+  // Season + Jira-style hierarchy (all optional, back-compatible)
+  seasonId?: string;
+  issueType?: KanbanIssueType;
+  parentId?: string;
+  jiraKey?: string;
 }
 
 interface KanbanTaskUpdate {
@@ -105,15 +138,74 @@ function emitTaskEvent(eventName: string, task: KanbanTask): void {
 }
 
 /**
+ * Single source of truth for hydrating + persisting a new kanban task. Shared by
+ * the `kanban:create` IPC handler and the season grooming flow (17c) so the
+ * id/order/timestamp/back-compat hydration lives in exactly one place.
+ *
+ * Defaults to the `backlog` column. Positions the task at the end of its column.
+ * Persists to disk and broadcasts `kanban:task-created`. Returns the created task.
+ */
+export function createTask(params: KanbanTaskCreate & { column?: KanbanColumn }): KanbanTask {
+  const tasks = loadTasks();
+  const column: KanbanColumn = params.column ?? 'backlog';
+
+  // Position at the end of the target column.
+  const columnTasks = tasks.filter(t => t.column === column);
+  const maxOrder = columnTasks.length > 0 ? Math.max(...columnTasks.map(t => t.order)) : -1;
+
+  const now = new Date().toISOString();
+  const newTask: KanbanTask = {
+    id: uuidv4(),
+    title: params.title,
+    description: params.description,
+    column,
+    projectId: params.projectId,
+    projectPath: params.projectPath,
+    assignedAgentId: null,
+    agentCreatedForTask: false,
+    requiredSkills: params.requiredSkills || [],
+    priority: params.priority || 'medium',
+    progress: 0,
+    createdAt: now,
+    updatedAt: now,
+    order: maxOrder + 1,
+    labels: params.labels || [],
+    attachments: params.attachments || [],
+    // Season + Jira-style hierarchy (hydrated with defaults for back-compat)
+    seasonId: params.seasonId,
+    issueType: params.issueType || 'task',
+    parentId: params.parentId,
+    comments: [],
+    jiraKey: params.jiraKey,
+  };
+
+  tasks.push(newTask);
+  saveTasks(tasks);
+  emitTaskEvent('kanban:task-created', newTask);
+
+  return newTask;
+}
+
+/**
  * Register all Kanban IPC handlers
  */
 export function registerKanbanHandlers(dependencies: KanbanHandlerDependencies): void {
   deps = dependencies;
 
-  // List all tasks
-  ipcMain.handle('kanban:list', async () => {
+  // List tasks, optionally filtered by season scope.
+  //   • no arg / scope 'all'        → every task (back-compat: global kanban)
+  //   • { seasonId, scope:'season' } → only tasks owned by that season
+  //   • scope 'global'              → only tasks with no seasonId (legacy/manual)
+  ipcMain.handle('kanban:list', async (_event, opts?: { seasonId?: string; scope?: KanbanScope }) => {
     try {
-      const tasks = loadTasks();
+      const allTasks = loadTasks();
+      const scope = opts?.scope ?? 'all';
+      let tasks = allTasks;
+      if (scope === 'season' && opts?.seasonId) {
+        tasks = allTasks.filter(t => t.seasonId === opts.seasonId);
+      } else if (scope === 'global') {
+        tasks = allTasks.filter(t => !t.seasonId);
+      }
       return { tasks };
     } catch (err) {
       console.error('Error listing kanban tasks:', err);
@@ -121,41 +213,10 @@ export function registerKanbanHandlers(dependencies: KanbanHandlerDependencies):
     }
   });
 
-  // Create a new task (defaults to backlog)
+  // Create a new task (defaults to backlog) — delegates hydration to createTask.
   ipcMain.handle('kanban:create', async (_event, params: KanbanTaskCreate) => {
     try {
-      const tasks = loadTasks();
-
-      // Find max order in backlog for positioning
-      const backlogTasks = tasks.filter(t => t.column === 'backlog');
-      const maxOrder = backlogTasks.length > 0
-        ? Math.max(...backlogTasks.map(t => t.order))
-        : -1;
-
-      const newTask: KanbanTask = {
-        id: uuidv4(),
-        title: params.title,
-        description: params.description,
-        column: 'backlog',
-        projectId: params.projectId,
-        projectPath: params.projectPath,
-        assignedAgentId: null,
-        agentCreatedForTask: false,
-        requiredSkills: params.requiredSkills || [],
-        priority: params.priority || 'medium',
-        progress: 0,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        order: maxOrder + 1,
-        labels: params.labels || [],
-        attachments: params.attachments || [],
-      };
-
-      tasks.push(newTask);
-      saveTasks(tasks);
-
-      emitTaskEvent('kanban:task-created', newTask);
-
+      const newTask = createTask(params);
       return { success: true, task: newTask };
     } catch (err) {
       console.error('Error creating kanban task:', err);
@@ -343,6 +404,29 @@ export function registerKanbanHandlers(dependencies: KanbanHandlerDependencies):
       saveTasks(tasks);
       emitTaskEvent('kanban:task-updated', task);
 
+      // 17d: push the column change to the linked Jira issue (best-effort,
+      // non-blocking). Only fires for season-scoped, Jira-linked tasks; a
+      // Jira/network failure is swallowed inside pushTaskMove and never affects
+      // the local move result.
+      if (task.seasonId && task.jiraKey) {
+        void pushTaskMove(task).catch(err =>
+          console.error('jira-sync: pushTaskMove (kanban:move) failed:', err),
+        );
+      }
+
+      // 17e: when a season task lands in `done`, check whether it completes its
+      // epic and (if so) open a team-factory PR. Fire-and-forget so it never
+      // blocks the move; tryCompleteEpic is internally guarded (idempotent) +
+      // resilient (never throws). Lazy import keeps the kanban-handlers ⇄ git-pr
+      // cycle runtime-safe.
+      if (targetColumn === 'done' && task.seasonId) {
+        const seasonId = task.seasonId;
+        const taskId = task.id;
+        void import('../services/git-pr')
+          .then(({ tryCompleteEpic }) => tryCompleteEpic(seasonId, taskId))
+          .catch(err => console.error('git-pr: tryCompleteEpic (kanban:move) failed:', err));
+      }
+
       return {
         success: true,
         task,
@@ -448,8 +532,169 @@ export function registerKanbanHandlers(dependencies: KanbanHandlerDependencies):
       return { success: false, error: err instanceof Error ? err.message : 'Failed to get task' };
     }
   });
+
+  // List a task's comments
+  ipcMain.handle('kanban:comment-list', async (_event, taskId: string) => {
+    try {
+      const tasks = loadTasks();
+      const task = tasks.find(t => t.id === taskId);
+      if (!task) {
+        return { success: false, error: 'Task not found', comments: [] };
+      }
+      return { success: true, comments: task.comments ?? [] };
+    } catch (err) {
+      console.error('Error listing kanban comments:', err);
+      return { success: false, error: err instanceof Error ? err.message : 'Failed to list comments', comments: [] };
+    }
+  });
+
+  // Add a comment to a task
+  ipcMain.handle('kanban:comment-add', async (_event, params: {
+    taskId: string;
+    comment: { author: string; authorName?: string; body: string; source?: 'local' | 'jira' };
+  }) => {
+    try {
+      if (!params?.taskId) {
+        return { success: false, error: 'taskId is required' };
+      }
+      const tasks = loadTasks();
+      const index = tasks.findIndex(t => t.id === params.taskId);
+      if (index === -1) {
+        return { success: false, error: 'Task not found' };
+      }
+
+      const body = (params.comment?.body ?? '').trim();
+      if (!body) {
+        return { success: false, error: 'Comment body is required' };
+      }
+
+      const task = tasks[index];
+      const comment: KanbanComment = {
+        id: uuidv4(),
+        author: params.comment.author || 'user',
+        authorName: params.comment.authorName,
+        body,
+        createdAt: new Date().toISOString(),
+        source: params.comment.source || 'local',
+      };
+
+      task.comments = [...(task.comments ?? []), comment];
+      task.updatedAt = new Date().toISOString();
+
+      saveTasks(tasks);
+      emitTaskEvent('kanban:task-updated', task);
+
+      // 17d: mirror locally-authored comments onto the linked Jira issue
+      // (best-effort, non-blocking). Comments that came FROM Jira (source
+      // 'jira') are NOT pushed back, avoiding an echo loop. A Jira/network
+      // failure is swallowed inside pushTaskComment.
+      if (comment.source === 'local' && task.seasonId && task.jiraKey) {
+        void pushTaskComment(task, { body: comment.body, authorName: comment.authorName }).catch(err =>
+          console.error('jira-sync: pushTaskComment (kanban:comment-add) failed:', err),
+        );
+      }
+
+      return { success: true, comment };
+    } catch (err) {
+      console.error('Error adding kanban comment:', err);
+      return { success: false, error: err instanceof Error ? err.message : 'Failed to add comment' };
+    }
+  });
+
+  // Delete a comment from a task
+  ipcMain.handle('kanban:comment-delete', async (_event, params: { taskId: string; commentId: string }) => {
+    try {
+      if (!params?.taskId || !params?.commentId) {
+        return { success: false, error: 'taskId and commentId are required' };
+      }
+      const tasks = loadTasks();
+      const index = tasks.findIndex(t => t.id === params.taskId);
+      if (index === -1) {
+        return { success: false, error: 'Task not found' };
+      }
+
+      const task = tasks[index];
+      task.comments = (task.comments ?? []).filter(c => c.id !== params.commentId);
+      task.updatedAt = new Date().toISOString();
+
+      saveTasks(tasks);
+      emitTaskEvent('kanban:task-updated', task);
+
+      return { success: true };
+    } catch (err) {
+      console.error('Error deleting kanban comment:', err);
+      return { success: false, error: err instanceof Error ? err.message : 'Failed to delete comment' };
+    }
+  });
+}
+
+/**
+ * Move a backlog/planned task into the `planned` column and kick the existing
+ * assign-automation (find or create an agent, flip to `ongoing`, start work).
+ * Used by the season direction flow (17c) so a user-chosen epic's children begin
+ * work through the SAME path as a manual drag-to-planned, without duplicating the
+ * spawn logic. No-op for unknown tasks or already-ongoing/done tasks. Resilient:
+ * automation failures leave the task in `planned`. Returns true if a move occurred.
+ */
+export async function moveTaskToPlanned(taskId: string): Promise<boolean> {
+  const tasks = loadTasks();
+  const task = tasks.find(t => t.id === taskId);
+  if (!task) return false;
+
+  // Only move things that are sitting in backlog/planned.
+  if (task.column === 'ongoing' || task.column === 'done') return false;
+  if (task.column === 'planned') return false;
+
+  const plannedTasks = tasks.filter(t => t.column === 'planned' && t.id !== task.id);
+  task.column = 'planned';
+  task.order = plannedTasks.length > 0 ? Math.max(...plannedTasks.map(t => t.order)) + 1 : 0;
+  task.updatedAt = new Date().toISOString();
+  saveTasks(tasks);
+  emitTaskEvent('kanban:task-updated', task);
+
+  if (!deps) return true;
+
+  // Mirror the kanban:move automation: assign an agent, flip to ongoing, start.
+  try {
+    let agentId = await deps.findMatchingAgent(task.projectPath, task.requiredSkills);
+    if (!agentId) {
+      agentId = await deps.createAgentForTask(task);
+      task.agentCreatedForTask = true;
+    } else {
+      task.agentCreatedForTask = false;
+    }
+    task.assignedAgentId = agentId;
+    saveTasks(tasks);
+    emitTaskEvent('kanban:task-updated', task);
+
+    await new Promise(resolve => setTimeout(resolve, 3000));
+
+    task.column = 'ongoing';
+    task.updatedAt = new Date().toISOString();
+    saveTasks(tasks);
+    emitTaskEvent('kanban:task-updated', task);
+
+    let prompt = `# Task: ${task.title}\n\n${task.description}`;
+    prompt += '\n\n## Task Completion\n';
+    prompt += `**Task ID:** \`${task.id}\`\n\n`;
+    prompt += `**IMPORTANT:** When you have completed this task, you MUST call the \`mark_task_done\` MCP tool with:\n`;
+    prompt += `- \`task_id\`: \`${task.id}\`\n`;
+    prompt += `- \`summary\`: A brief 1-3 sentence summary of what you accomplished\n\n`;
+    prompt += `This will move the task to the "Done" column on the kanban board.`;
+
+    await deps.startAgent(agentId, prompt, task.id);
+  } catch (automationErr) {
+    console.error('moveTaskToPlanned automation error:', automationErr);
+    // Leave the task in planned on failure (mirrors kanban:move).
+    task.column = 'planned';
+    task.updatedAt = new Date().toISOString();
+    saveTasks(tasks);
+    emitTaskEvent('kanban:task-updated', task);
+  }
+
+  return true;
 }
 
 // Export for direct use in automation service
 export { loadTasks, saveTasks, emitTaskEvent };
-export type { KanbanTask, KanbanColumn };
+export type { KanbanTask, KanbanColumn, KanbanComment, KanbanIssueType };

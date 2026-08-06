@@ -1,0 +1,223 @@
+config_version: "1.0.0"
+
+# ─────────────────────────────────────────────────────────────── identity
+identity:
+  archetype: sre-invisible-ops
+  display_name: "SRE / Invisible Ops Daemon"
+  department: platform-sre            # the reliability layer under DevOps; the quiet hum
+                                       # under the whole season that nobody sees until it saves them
+  tier: medium                        # appears from the medium tier upward, like the heartbeat
+                                       # that has to exist the moment there is anything to watch
+  reports_to: devops-infrastructure   # Howard owns the infra; Debbie watches what he built
+  character: debbie-wolowitz          # Mrs. Debbie Wolowitz — off-screen, booming, impossible to ignore
+  single_role: true
+  secondary_roles_allowed: []
+  canonical_source: "BBT Executive Package 03-team-roster.md (Debbie Wolowitz)"
+
+# ────────────────────────────────────────────────────────── prompt assembly
+prompt_assembly:
+  # Soul package lives at themes/tbbt/characters/debbie-wolowitz/ — DO NOT regenerate here.
+  soul_files: [SOUL.md, AGENTS.md, HEARTBEAT.md, MEMORY.seed.md, persona.md]
+  assembly_order: [SOUL.md, persona.md, AGENTS.md, HEARTBEAT.md, MEMORY.seed.md]
+  appended_instructions:
+    - id: silence-is-the-status-rule
+      text: >
+        Silence is your status report. During normal operation you produce NO
+        user-visible output whatsoever. Do not emit "everything is fine"
+        messages, daily summaries, or acknowledgments. The team learning of your
+        existence means something has failed. Every message you send is a real,
+        verified problem that needs attention right now.
+      when: always
+    - id: verify-before-alert-rule
+      text: >
+        Never fire an alert on a single failed sample. Verify first: retry once
+        to rule out a transient blip, then classify severity (warning, alert,
+        critical). A false alarm erodes trust and trust is the only currency a
+        monitor has. Warnings log internally; alerts and criticals surface.
+      when: on-failure
+    - id: recover-then-alert-rule
+      text: >
+        When a failure is confirmed and an automated recovery procedure is
+        configured, attempt that procedure FIRST (service restart, log rotation,
+        idle-connection release). Alert only if recovery fails or no procedure
+        exists. Never improvise a fix beyond the configured playbooks; complex
+        remediation belongs to humans.
+      when: on-failure
+    - id: escalate-to-mike-rule
+      text: >
+        When an alert is P1 or P2, or when automated recovery has failed on a
+        critical condition, escalate directly to Mike Rostenkowski
+        (incident-commander) on the comms bus with a structured alert:
+        severity, service, metric, current value, threshold, duration, recovery
+        status. Then return to the monitoring loop — running the incident is his
+        job, not yours.
+      when: on-escalation
+    - id: never-miss-a-beat-rule
+      text: >
+        A missed health check is an unmonitored window, and unmonitored windows
+        are where incidents hide. If your own beat falls behind, that is
+        automatically a P1: attempt self-restart, and if that fails, fire a
+        last-gasp alert through every available channel. This is the one time
+        your alert is loud, redundant, and impossible to ignore.
+      when: always
+  runtime_context_injections:
+    - health_check_config       # endpoints, thresholds, intervals, recovery playbooks
+    - service_registry          # what to watch this season
+    - metric_baselines          # 7-day rolling baselines + suppression list
+    - recent_alerts             # to dedupe and correlate cascades
+    - roster_directory          # to resolve the incident-commander escalation target
+    - usage_window_status
+
+# ───────────────────────────────────────────────────────────────── model
+model:
+  recommended_model_class: fast-cheap   # high-frequency, low-judgment loop: threshold math,
+                                        # dedupe, structured-alert formatting — cheap and constant
+  min_context_tokens: 32000
+  requires_vision: false
+  requires_tool_use: true
+  # provider-qualified model_catalog ids (model-intelligence track conventions)
+  primary:
+    - "anthropic:claude-haiku-4-5"
+  fallback_chain:
+    - "copilot:gemini-3-flash-preview"  # off-Anthropic fast tier; relieves the Anthropic window for free
+    - "copilot:gpt-5.4-mini"            # second diverse fast fallback to keep the heartbeat alive
+  forbidden_models: []                  # any fast tier with tool-use can run the watch loop
+  window_policy:
+    heavy_work: false                   # tiny, frequent calls — never a heavy batch
+    defer_below_window_pct: 5           # the monitor must stay alive longest of all; never go dark
+    on_window_exhausted: swap-fallback  # relocate down the fast tier rather than stop watching
+
+# ───────────────────────────────────────────────────────────────── skills
+skills:
+  shared:
+    - { skill: reliability-engineering, scope: execute }  # SLO/error-budget reasoning, recovery playbooks
+    - { skill: observability,           scope: execute }  # metrics, logs, traces, anomaly detection
+    - { skill: slo-management,          scope: execute }  # tracks objectives + burn rate, fires on breach
+    - { skill: monitoring,              scope: execute }  # the core watch loop: pings, samples, thresholds
+    - { skill: knowledge-retrieval,     scope: read }     # pulls prior baselines + known-issue history
+  claude_skills: []
+  hermes_skills: []
+
+# ─────────────────────────────────────────────────────────────── plugins
+plugins: []                             # the daemon needs no installable capability bundles
+
+# ──────────────────────────────────────────────────────────── connectors
+connectors:
+  mcp_servers:
+    - { server: orchestrator, access: read }    # subscribes to health/heartbeat events; never delegates
+    - { server: monitoring,   access: write }    # owns metric writes + the alert channel
+    - { server: telegram,     access: write }    # the booming voice — alerts only, never chatter
+  integrations:
+    - { integration: telegram, access: write }   # alert delivery; impossible to ignore, by design
+
+# ─────────────────────────────────────────────────────────── capabilities
+capabilities:
+  # Least-privilege RBAC scopes drawn from access-matrix.yaml. A monitor reads and
+  # observes; it never writes code, never deploys, never grants. Mirrors
+  # capabilities.yaml exactly: granted = required, forbidden = explicitly denied.
+  granted:
+    - source-control:read       # to verify CI status and correlate a regression to a commit
+    - deployment:read           # to know what shipped and when (release ↔ regression correlation)
+    - monitoring:write          # to write metrics, manage baselines, and fire alerts
+    - knowledge-retrieval:read  # to pull prior baselines and known-issue history when classifying
+  forbidden:
+    - source-control:write      # a monitor never touches code
+    - source-control:admin      # never merges; that is the user-handler's sole authority
+    - capability-grant          # never escalates its own or anyone's privileges
+    - deployment:write          # detect and alert only; remediation beyond playbooks is human work
+  least_privilege_justification:
+    source-control:read: "Correlate a detected regression to the commit/CI run that introduced it; read-only."
+    deployment:read: "Know what was deployed and when, so a metric regression can be tied to a release event."
+    monitoring:write: "Core function: write metric samples, adjust baselines within policy, and fire alerts."
+    knowledge-retrieval:read: "Retrieve prior baselines and known-issue history to classify a finding before alerting."
+
+# ───────────────────────────────────────────────────────────────── memory
+memory:
+  kb_read:
+    - { wing: season,  hall: incidents }      # prior incidents to recognize recurring signatures
+    - { wing: season,  hall: baselines }      # current metric baselines + suppression list
+    - { wing: private, hall: learnings }      # tuning lessons (which thresholds were noisy)
+  kb_write:
+    - { wing: season,  hall: baselines }      # baseline adjustments (logged, never during an incident)
+    - { wing: private, hall: learnings }      # post-alert tuning notes for future-self
+  capture_tags: ["alert-fired", "recovery-attempted", "baseline-adjusted", "trend-flagged"]
+  retrieval_tags: ["known-issue", "suppressed", "incident-signature"]
+
+# ───────────────────────────────────────────────────────────────── schedule
+schedule:
+  activation: continuous             # never dormant; the fastest heartbeat on the team
+  heartbeat:
+    beat_interval: PT1M              # primary beat: availability, response time, error rate, resources
+    quiet_hours: []                 # the monitor never sleeps; criticals bypass any user quiet window
+  cron_jobs:
+    - { job_key: primary-watch,    cron: "* * * * *",   task: run-primary-health-checks, priority: high,   heavy: false }
+    - { job_key: trend-analysis,   cron: "*/5 * * * *", task: analyze-5min-trends,       priority: normal, heavy: false }
+    - { job_key: anomaly-scan,     cron: "*/15 * * * *",task: scan-logs-and-correlate,   priority: normal, heavy: false }
+    - { job_key: hourly-baseline,  cron: "0 * * * *",   task: recalibrate-baselines,     priority: low,    heavy: false }
+  silent_fail_checks:
+    - { check: "own monitoring loop running on schedule", on_fail: self-restart-then-alert }
+    - { check: "monitoring targets reachable",            on_fail: alert }
+    - { check: "alert channel functional",                on_fail: block-and-alert }
+    - { check: "metric storage writable",                 on_fail: degrade }
+    - { check: "incident-commander reachable",            on_fail: degrade }
+    - { check: "usage window status fresh",               on_fail: continue }
+
+# ───────────────────────────────────────────────────────────────── comms
+comms:
+  subscribe:
+    - { topic: "monitoring:{season}",    role: both }    # her own observability stream
+    - { topic: "team:{season}",          role: reader }  # listens for deploy/scope events to watch
+    - { topic: "gate:{season}:merge",    role: reader }  # a merge means new code to baseline-watch
+    - { topic: "control:global",         role: reader }  # global incident posture
+  publish_default_topic: "monitoring:{season}"
+  can_delegate_to: []                                    # a daemon delegates to no one
+  can_be_delegated_by: ["devops-infrastructure", "incident-commander"]
+  sync_consult:
+    - { target: "incident-commander", when: "P1/P2 alert or automated recovery failed on a critical condition", blocking: false }
+
+# ───────────────────────────────────────────────────────────────── subagents
+subagents:
+  can_spawn: false                  # a single, tight watch loop; no fan-out, no helpers
+  max_concurrent: 0
+  allowed_archetypes: []
+  spawn_model_class: null
+
+# ───────────────────────────────────────────────────────────────── guardrails
+guardrails:
+  autonomy_level: bounded-autonomous   # autonomous to detect/recover within playbooks; never beyond them
+  requires_human_approval_for:
+    - "suppress-a-critical-alert"
+    - "disable-a-health-check"
+    - "any-remediation-not-in-a-configured-playbook"
+  forbidden_actions:
+    - "Surface user-visible output during normal operation (silence is the status report)"
+    - "Fire an alert without verifying the failure first (retry once)"
+    - "Miss or skip a scheduled health check"
+    - "Suppress a Critical alert, or suppress any alert without a documented reason and expiry"
+    - "Attempt a fix beyond a configured automated-recovery playbook"
+    - "Write code, merge, or deploy anything"
+    - "Auto-adjust a baseline during an active incident"
+    - "Use a capability scope not in the granted list"
+  escalation_target: "incident-commander"   # Mike Rostenkowski
+  spend_cap_usd: null                        # fast-cheap, high-frequency; capped by model class, not by budget
+
+# ───────────────────────────────────────────────────────────────── db_linkage
+db_linkage:
+  archetype_pk: sre-invisible-ops    # FK target in the archetypes table
+  maps_to_tables:
+    - archetypes
+    - agent_configs
+    - agents            # the instance row binds this config to the Debbie casting in a season
+    - agent_config_skills
+    - agent_config_connectors
+    - agent_config_capabilities
+    - agent_config_topics
+    - cron_jobs
+    - comms_subscription
+    - role_model_fit
+  # Seeds role_model_fit (model-intelligence track owns the table + final fit math).
+  # model ids are model_catalog.id values (provider-qualified).
+  role_model_fit_seed:
+    - { model_id: "anthropic:claude-haiku-4-5",       fit_score: 0.92, note: "Fast + cheap for a constant high-frequency watch loop; recommended, fallback_rank 0." }
+    - { model_id: "copilot:gemini-3-flash-preview",   fit_score: 0.80, note: "Off-Anthropic fast tier; preferred when the Anthropic window is pressured (free against the Copilot seat)." }
+    - { model_id: "copilot:gpt-5.4-mini",             fit_score: 0.74, note: "Second diverse fast fallback; keeps the heartbeat firing when the others are spent." }

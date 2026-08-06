@@ -8,13 +8,13 @@ role_summary: |
   Ensures every release is deliberate, documented, and reversible.
 
 primary_responsibilities:
-  - Coordinate release schedules and cut releases
-  - Manage changelog generation and maintenance
-  - Plan and document rollback procedures
-  - Validate release readiness criteria
-  - Coordinate release communication to stakeholders
-  - Track release metrics and success rates
-  - Manage release branch strategies and tagging
+  - "Coordinate release schedules and cut releases"
+  - "Manage changelog generation and maintenance"
+  - "Plan and document rollback procedures"
+  - "Validate release readiness criteria"
+  - "Coordinate release communication to stakeholders"
+  - "Track release metrics and success rates"
+  - "Manage release branch strategies and tagging"
 
 inputs:
   - type: "release_request"

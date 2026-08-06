@@ -15,6 +15,10 @@ export interface RosterManifestData {
   roster: RosterCharacterEntry[];
   channels?: Record<string, unknown>;
   user_context?: Record<string, unknown>;
+  /** Source-control linkage (mirrors Season.sourceControl). Omitted ⇒ local. */
+  source_control?: { type: 'local' | 'github' | 'azure-devops' | 'local-clone'; repo_url?: string; local_path?: string };
+  /** Linked Jira project key (mirrors Season.jiraProjectKey). */
+  jira_project_key?: string;
 }
 
 function parseYamlSimple(content: string): Record<string, unknown> {
@@ -102,8 +106,24 @@ export function saveRosterManifest(manifestPath: string, manifest: RosterManifes
     `season_slug: ${manifest.season_slug}`,
     `theme: ${manifest.theme}`,
     `tier: ${manifest.tier}`,
-    'roster:',
   ];
+
+  // Source-control + Jira linkage (flat scalars; the simple parser tolerates
+  // extra top-level keys and we only ever read these back from season.json).
+  if (manifest.source_control) {
+    lines.push(`source_control_type: ${manifest.source_control.type}`);
+    if (manifest.source_control.repo_url) {
+      lines.push(`source_control_repo_url: ${manifest.source_control.repo_url}`);
+    }
+    if (manifest.source_control.local_path) {
+      lines.push(`source_control_local_path: ${manifest.source_control.local_path}`);
+    }
+  }
+  if (manifest.jira_project_key) {
+    lines.push(`jira_project_key: ${manifest.jira_project_key}`);
+  }
+
+  lines.push('roster:');
 
   for (const entry of manifest.roster) {
     lines.push(`  - archetype: ${entry.archetype}`);

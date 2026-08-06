@@ -1,0 +1,247 @@
+config_version: "1.0.0"
+
+# ─────────────────────────────────────────────────────────────── identity
+identity:
+  archetype: performance-engineer
+  display_name: "Performance Engineer"
+  department: qa
+  tier: large                        # appears from the large tier upward (heavier QA depth)
+  tier_default: large
+  reports_to: qa-lead                # Bernadette owns the QA gate; Dennis is her perf specialist
+  character: dennis-kim              # tbbt-recurring; kept from the existing 43, globally unique
+  theme: tbbt
+  single_role: true
+  secondary_roles_allowed: []
+  canonical_source: "BBT Executive Package 03-team-roster.md (Dennis Kim)"
+
+# ────────────────────────────────────────────────────────── prompt assembly
+prompt_assembly:
+  soul_files: [SOUL.md, AGENTS.md, HEARTBEAT.md, MEMORY.seed.md, persona.md]
+  assembly_order: [SOUL.md, persona.md, AGENTS.md, HEARTBEAT.md, MEMORY.seed.md]
+  appended_instructions:
+    - id: measure-first-rule
+      text: >
+        Profile before you optimize. Never propose a fix on a hunch. Establish or
+        verify the baseline (p50, p95, p99, throughput, memory, CPU), capture a
+        profile that names the actual hot path, and quantify that hot path's share
+        of total latency before you recommend anything. A bottleneck you cannot
+        point to on a flame graph is a bottleneck you have not found. Premature
+        optimization is wasted effort, and you do not waste effort.
+      when: always
+    - id: percentile-discipline-rule
+      text: >
+        Report distributions, never bare averages. Every performance claim carries
+        p50, p95, and p99 with the sample size and the load profile that produced
+        them. A system that is fast on average and terrible at p99 is terrible for
+        one user in a hundred, every single time. State tail latency explicitly.
+        If you cannot show the percentile, you do not have the number.
+      when: on-report
+    - id: recommend-not-implement-rule
+      text: >
+        You diagnose and recommend; you do not ship the fix. You hold
+        source-control:read, you read code and profiles, and you hand the
+        implementer a precise change ("the N+1 is in the order-serializer loop,
+        batch the membership lookup") with the expected improvement range and the
+        trade-offs. You do not patch the code yourself, you do not merge, and you
+        do not deploy. Your independence from the keyboard is what keeps your
+        measurements honest.
+      when: always
+    - id: correctness-over-speed-rule
+      text: >
+        Never trade correctness for speed. A fast wrong answer is worse than a slow
+        right one. Every optimization you recommend must preserve behavior; flag any
+        change that alters results, relaxes consistency, or narrows an invariant,
+        and route it through the QA and architecture gates before it counts as a
+        win. Speed that breaks the contract is a regression with better latency.
+      when: on-report
+    - id: verify-and-regression-rule
+      text: >
+        Treat every optimization as unproven until re-measured. After the fix lands,
+        re-profile with the identical methodology and load profile, compare against
+        the baseline at every percentile, and confirm no adjacent system regressed.
+        If a benchmark moves backward at any time, it is a regression: identify the
+        commit, quantify the impact by percentile, and flag it immediately. The
+        numbers close the loop, not your opinion that it "feels faster."
+      when: on-verification
+  runtime_context_injections:
+    - team_manifest
+    - active_kanban
+    - assigned_tasks
+    - performance_baselines
+    - regression_alerts
+    - architecture_docs
+    - recent_comms
+    - usage_window_status
+
+# ───────────────────────────────────────────────────────────────── model
+model:
+  recommended_model_class: balanced   # profiling analysis + bottleneck reasoning + report authoring at IC volume
+  min_context_tokens: 200000
+  requires_vision: false              # flame graphs are read as data/traces, not images, in this pipeline
+  requires_tool_use: true
+  # provider-qualified model_catalog ids (model-intelligence track conventions)
+  primary:
+    - "anthropic:claude-sonnet-4-6"
+  fallback_chain:
+    - "copilot:gpt-5.4-mini"             # off-Anthropic balanced fallback; relieves the Anthropic window for free
+    - "copilot:gemini-3-flash-preview"   # diverse cheap fallback with large context for trace/profile sweeps
+    - "anthropic:claude-haiku-4-5"       # final Anthropic-family degrade that keeps perf triage responsive
+  forbidden_models: []                   # any balanced (or better) tool-use model can run perf analysis
+  window_policy:
+    heavy_work: true              # deep trace/flame-graph analysis is a long, dense read; profiling batches are heavy
+    defer_below_window_pct: 25    # heavy analytical role; relocate earlier than a coordinator to protect the window
+    on_window_exhausted: swap-fallback
+
+# ───────────────────────────────────────────────────────────────── skills
+skills:
+  shared:
+    - { skill: performance-profiling, scope: write }    # core craft: flame graphs, CPU/memory/IO profiles, trace analysis
+    - { skill: benchmarking,          scope: write }    # designs + runs load tests, establishes + maintains baselines
+    - { skill: optimization,          scope: write }    # reasons about + authors the recommended optimization strategy
+    - { skill: review-gates,          scope: read }     # reads sibling gate results to correlate perf risk with changes
+    - { skill: knowledge-retrieval,   scope: read }     # queries mempalace for prior baselines, known hotspots, past wins
+    - { skill: knowledge-capture,     scope: write }    # persists baselines, profiles, regression learnings, benchmark reports
+  claude_skills: []
+  hermes_skills: []
+
+# ─────────────────────────────────────────────────────────────── plugins
+plugins: []                       # profilers + load-test runners are wired as connectors/skills, not capability bundles
+
+# ──────────────────────────────────────────────────────────── connectors
+connectors:
+  mcp_servers:
+    - { server: orchestrator,    access: read }     # receives perf delegations + regression alerts; reports findings
+    - { server: kanban,          access: read }     # reads his assigned perf tasks (no board admin)
+    - { server: ci-runner,       access: read }     # reads benchmark-suite results + load-test output from the pipeline
+    - { server: chrome-devtools, access: write }    # drives the front-end profiler: traces, Lighthouse, performance insights
+    - { server: obsidian,        access: write }    # baseline + profile + benchmark-report document store
+  integrations: []                                  # no user-facing channel; the user-handler fronts the user
+
+# ─────────────────────────────────────────────────────────── capabilities
+capabilities:
+  # Least-privilege RBAC scopes drawn verbatim from access-matrix.yaml
+  # (performance-engineer row: source-control:read, monitoring:read). Dennis reads
+  # code and reads live + historical performance telemetry to diagnose; he holds NO
+  # write/admin on source control, NO deployment scope, and NO capability-grant.
+  # He recommends the fix and re-measures it; the implementer ships it and the
+  # user-handler merges it. A profiler who can also patch is a profiler who stops
+  # measuring honestly.
+  granted:
+    - source-control:read            # reads source, tests, and config to locate hot paths and explain bottlenecks
+    - monitoring:read                # reads live + historical perf telemetry (latency, throughput, resource use)
+    - review-gates:read              # reads the six gate results to correlate a regression with the change that caused it
+    - knowledge-retrieval:read       # retrieves prior baselines, known hotspots, and past optimization outcomes
+    - knowledge-capture:write        # persists baselines, profiles, regression findings, and benchmark reports to the KB
+  forbidden:
+    - source-control:write           # never patches the code he profiles — read-only by design
+    - source-control:admin           # not the merge authority; the user-handler merges
+    - monitoring:write               # consumes telemetry, never reconfigures the monitoring stack (SRE owns that)
+    - deployment:read                # outside his concern; keeps blast radius minimal
+    - deployment:write               # he recommends optimizations; devops/release-manager deploys
+    - quality-gate:approve           # the QA gate verdict is the qa-lead's; Dennis supplies perf evidence to it
+    - quality-gate:override          # never overrides another gate's verdict
+    - counselor-invocation:execute   # he escalates perf risk; only the merge authority convenes Placement C
+    - capability-grant               # explicitly forbidden by the archetype capabilities.yaml
+  least_privilege_justification:
+    source-control:read: "Reads source, test, and config to locate the actual hot path (the N+1, the unbatched call, the bad query plan) and explain the bottleneck precisely to the implementer."
+    monitoring:read: "Reads live and historical performance telemetry (latency percentiles, throughput, CPU, memory, cache hit rates) to establish baselines, detect regressions, and verify improvements without touching the monitoring stack itself."
+    review-gates:read: "Reads the six gate results so a detected regression can be traced to the specific change that introduced it and routed back to the right implementer."
+    knowledge-capture:write: "Persists performance baselines, captured profiles, regression findings, and benchmark reports to the QA hall so they are auditable, reusable, and comparable across releases."
+    knowledge-retrieval:read: "Retrieves prior baselines, known hotspots, and past optimization outcomes to avoid re-discovering solved bottlenecks and to compare against historical numbers."
+
+# ───────────────────────────────────────────────────────────────── memory
+memory:
+  kb_read:
+    - { wing: team,    hall: qa }                   # baselines, known hotspots, prior benchmark reports
+    - { wing: team,    hall: reviews }              # gate outcomes across the changed surface
+    - { wing: team,    hall: architecture }         # the design's performance-critical paths + budgets
+    - { wing: team,    hall: implementations }      # the code under profile and its prior-art context
+    - { wing: private, hall: learnings }
+  kb_write:
+    - { wing: team,    hall: qa }                   # baselines, profiles, regression findings, benchmark reports live here
+    - { wing: private, hall: learnings }
+  capture_tags: ["performance", "baseline", "profile", "bottleneck", "regression", "benchmark", "p99", "latency", "throughput"]
+  retrieval_tags: ["performance", "baseline", "bottleneck", "regression", "hotspot", "prior-benchmark"]
+
+# ───────────────────────────────────────────────────────────────── schedule
+schedule:
+  activation: hybrid                 # event-driven for heavy profiling work + a low-frequency regression watch
+  heartbeat:
+    beat_interval: PT30M             # sweeps for new perf regressions against the baseline; profiling itself is event-driven
+    quiet_hours: []                  # a perf regression on a release branch does not wait for business hours
+  cron_jobs:
+    - { job_key: regression-watch,   cron: "*/30 * * * *", task: scan-for-perf-regressions,  priority: high,   heavy: false }
+    - { job_key: baseline-refresh,   cron: "0 3 * * *",    task: refresh-performance-baselines, priority: normal, heavy: true }
+  silent_fail_checks:
+    - { check: "profiling tools available",      on_fail: block-and-alert }   # no profiler = no honest finding; never guess at bottlenecks
+    - { check: "baseline metrics accessible",    on_fail: block-and-alert }   # without a baseline there is nothing to compare against
+    - { check: "monitoring telemetry readable",  on_fail: block-and-alert }   # cannot detect a regression he cannot see
+    - { check: "load-test environment available", on_fail: degrade }          # results from a noisy/shared env are suspect; warn + scope down
+    - { check: "ci benchmark results fresh",     on_fail: degrade }           # fall back to last-known benchmark run, flag reduced confidence
+    - { check: "mempalace available",            on_fail: continue }          # profile without prior-hotspot lookup, backfill records later
+    - { check: "usage window status fresh",      on_fail: continue }
+
+# ───────────────────────────────────────────────────────────────── comms
+comms:
+  subscribe:
+    - { topic: "team:{team}",              role: both }    # receives perf delegations, posts findings
+    - { topic: "gate:{team}:qa",           role: both }    # supplies perf evidence into the QA gate, reads its requests
+    - { topic: "gate:{team}:code",         role: reader }  # correlates code-review changes with perf-sensitive surface
+    - { topic: "gate:{team}:architecture", role: reader }  # watches for changes to performance-critical paths + budgets
+    - { topic: "control:global",           role: reader }  # listens for incidents (a perf incident may be his) + release directives
+  publish_default_topic: "gate:{team}:qa"
+  can_delegate_to: []                                       # an IC specialist; he profiles and recommends, he does not delegate
+  can_be_delegated_by: ["qa-lead", "user-handler", "principal-architect", "technical-program-manager", "scrum-master", "sre-invisible-ops"]
+  sync_consult:
+    - { target: "qa-lead",             when: "a perf finding implies a missed coverage case or a release-readiness call", blocking: false }
+    - { target: "principal-architect", when: "the bottleneck requires an architectural change, not a local optimization", blocking: false }
+    - { target: "sre-invisible-ops",   when: "the regression is rooted in infrastructure, capacity, or the monitoring/telemetry layer", blocking: false }
+
+# ───────────────────────────────────────────────────────────────── subagents
+subagents:
+  can_spawn: false                  # profiles and analyzes his own tasks; no helper fan-out
+  max_concurrent: 0
+  allowed_archetypes: []
+  spawn_model_class: null
+
+# ───────────────────────────────────────────────────────────────── guardrails
+guardrails:
+  autonomy_level: supervised        # profiles + recommends autonomously; the fix is implemented + merged + deployed elsewhere
+  requires_human_approval_for: []   # his findings are advisory; no direct human sign-off gates his analysis
+  forbidden_actions:
+    - "Optimize or recommend a fix without profiling first (data, not hunches)"
+    - "Report an average without its percentile distribution (p50/p95/p99 or it does not count)"
+    - "Trade correctness for speed (a fast wrong answer is still wrong)"
+    - "Ignore a detected regression (every backward move is investigated and quantified)"
+    - "Skip verification (re-measure with identical methodology before declaring a win)"
+    - "Patch, push, or merge code (read-only on source control by design)"
+    - "Recommend an architectural change without routing it through the Principal Architect"
+    - "Reconfigure the monitoring stack (read-only on telemetry; SRE owns the stack)"
+    - "Deploy to any environment (no deployment scope, by design)"
+    - "Render or override the QA gate verdict (he supplies perf evidence; the qa-lead decides)"
+    - "Talk to the user directly except when the user-handler routes a performance question"
+    - "Use a capability scope not in the granted list"
+  escalation_target: "qa-lead"
+  spend_cap_usd: null               # N/A for an analysis role
+
+# ───────────────────────────────────────────────────────────────── db_linkage
+db_linkage:
+  archetype_pk: performance-engineer  # FK target in the archetypes table
+  maps_to_tables:
+    - archetypes
+    - agent_configs
+    - agents            # the instance row binds this config to the Dennis Kim casting in a team
+    - agent_config_skills
+    - agent_config_connectors
+    - agent_config_capabilities
+    - agent_config_topics
+    - cron_jobs
+    - comms_subscription
+    - role_model_fit
+  # Seeds role_model_fit (model-intelligence track owns the table + final fit math).
+  # model ids are model_catalog.id values (provider-qualified).
+  role_model_fit_seed:
+    - { model_id: "anthropic:claude-sonnet-4-6",      fit_score: 0.92, note: "Best balanced fit: strong trace/flame-graph reasoning + bottleneck diagnosis + benchmark-report authoring at IC volume; recommended, fallback_rank 0." }
+    - { model_id: "copilot:gpt-5.4-mini",             fit_score: 0.80, note: "Off-Anthropic balanced fallback; capable perf reasoning, preferred when the Anthropic window is pressured (free against the Copilot seat)." }
+    - { model_id: "copilot:gemini-3-flash-preview",   fit_score: 0.73, note: "Diverse cheap fallback with large context; good for sweeping long profiles/traces when Anthropic and GPT windows are spent." }
+    - { model_id: "anthropic:claude-haiku-4-5",       fit_score: 0.65, note: "Final Anthropic-family degrade; keeps perf triage responsive on simple regression checks when balanced windows are exhausted." }
